@@ -1,0 +1,893 @@
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router';
+import { useAuth } from '@/hooks/useAuth';
+import { useLinexData } from '@/hooks/useLinexData';
+import { saveCenter, saveDepartment } from '@/services/firebaseService';
+import type { Center, Department, Doctor } from '@/types/linex';
+import { getStatusLabel, getStatusColor, getRemainingDays } from '@/types/linex';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import {
+  Building2, Clock, ImagePlus, Save, LogOut, User, Phone, Mail,
+  Plus, Trash2, ExternalLink, Copy, CheckCircle2, AlertCircle,
+  Stethoscope, CalendarDays, Shield, Edit3, Eye, EyeOff, Megaphone
+} from 'lucide-react';
+
+type Tab = 'info' | 'schedule' | 'doctors' | 'visibility' | 'share';
+
+export default function Dashboard() {
+  const navigate = useNavigate();
+  const { auth, logout, updateAdmin } = useAuth();
+  const { centers, departments, getActiveAnnouncements } = useLinexData();
+
+  // Get managed entity
+  const [entity, setEntity] = useState<Center | Department | null>(null);
+  const [entityType, setEntityType] = useState<'center' | 'department'>('center');
+  const [msg, setMsg] = useState('');
+  const [tab, setTab] = useState<Tab>('info');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Edit states
+  const [editInfo, setEditInfo] = useState(false);
+  const [infoForm, setInfoForm] = useState({ name: '', address: '', phone: '', email: '' });
+
+  const [editSchedule, setEditSchedule] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState({ workingDays: '', workingHours: '', fridayHours: '', emergencyHours: '', consultationDuration: 15 });
+
+  // Doctor form (for centers)
+  const [showDoctorForm, setShowDoctorForm] = useState(false);
+  const [doctorForm, setDoctorForm] = useState<Partial<Doctor>>({
+    name: '', specialty: '', title: 'أخصائي', email: '', phone: '', bio: '', image: '',
+    consultationDuration: 15, startTime: '09:00', endTime: '14:00', daysOff: ['الجمعة'], isActive: true
+  });
+
+  // Password change state
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ current: '', newPass: '', confirm: '', error: '' });
+
+  const showMsg = (t: string) => { setMsg(t); setTimeout(() => setMsg(''), 4000); };
+
+  // Get active announcements for this admin
+  const activeAnns = auth.admin ? getActiveAnnouncements(auth.admin.id) : [];
+
+  // Load entity on mount
+  useEffect(() => {
+    if (!auth.isAuthenticated || !auth.admin) return;
+
+    if (auth.admin.role === 'center' && auth.admin.centerId) {
+      const c = centers.find(x => x.id === auth.admin!.centerId);
+      if (c) {
+        setEntity(c);
+        setEntityType('center');
+        setInfoForm({ name: c.name, address: c.address, phone: c.phone, email: c.email });
+        setScheduleForm({
+          workingDays: c.workingDays,
+          workingHours: c.workingHours,
+          fridayHours: c.fridayHours,
+          emergencyHours: c.emergencyHours,
+          consultationDuration: c.consultationDuration || 15,
+        });
+      }
+    } else if (auth.admin.role === 'department' && auth.admin.departmentId) {
+      const d = departments.find(x => x.id === auth.admin!.departmentId);
+      if (d) {
+        setEntity(d);
+        setEntityType('department');
+        setInfoForm({ name: d.name, address: '', phone: '', email: d.doctorEmail });
+        setScheduleForm({
+          workingDays: d.workingDays || 'السبت - الخميس',
+          workingHours: d.workingHours || '8:00 ص - 10:00 م',
+          fridayHours: d.fridayHours || '4:00 م - 9:00 م',
+          emergencyHours: '',
+          consultationDuration: d.consultationDuration || 15,
+        });
+      }
+    }
+  }, [auth, centers, departments]);
+
+  // Not logged in or no entity
+  if (!auth.isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card className="p-8 text-center">
+          <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-900 mb-2">يجب تسجيل الدخول أولاً</h2>
+          <p className="text-gray-500 mb-4">لا يمكنك الوصول للوحة التحكم بدون تسجيل الدخول</p>
+          <div className="flex gap-3 justify-center">
+            <Button onClick={() => navigate('/login')} className="bg-teal-600 hover:bg-teal-700">تسجيل الدخول</Button>
+            <Button variant="outline" onClick={() => navigate('/')}>الرئيسية</Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!entity) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card className="p-8 text-center">
+          <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-900 mb-2">لم يتم العثور على المركز أو العيادة</h2>
+          <p className="text-gray-500 mb-4">قد يكون الحساب غير مرتبط بأي مركز أو عيادة</p>
+          <Button variant="outline" onClick={() => { logout(); navigate('/'); }}>خروج</Button>
+        </Card>
+      </div>
+    );
+  }
+
+  const remDays = getRemainingDays(entity.expiresAt);
+  const isCenter = entityType === 'center';
+  const cEntity = isCenter ? entity as Center : null;
+  const dEntity = !isCenter ? entity as Department : null;
+
+  // Get public URL
+  const deptCenterId = !isCenter ? (entity as Department).centerId : null;
+  const publicUrl = isCenter
+    ? `${window.location.origin}/#/center/${entity.id}`
+    : deptCenterId
+      ? `${window.location.origin}/#/center/${deptCenterId}/booking`
+      : `${window.location.origin}/#/dept/${entity.id}/booking`;
+
+  // Save info
+  const saveInfo = async () => {
+    if (isCenter && cEntity) {
+      const updated = { ...cEntity, name: infoForm.name, address: infoForm.address, phone: infoForm.phone, email: infoForm.email };
+      setEntity(updated);
+      await saveCenter(updated);
+    } else if (!isCenter && dEntity) {
+      const updated = { ...dEntity, name: infoForm.name, doctorEmail: infoForm.email };
+      setEntity(updated);
+      await saveDepartment(updated);
+    }
+    setEditInfo(false);
+    showMsg('تم حفظ المعلومات بنجاح');
+  };
+
+  // Save schedule
+  const saveSchedule = async () => {
+    if (isCenter && cEntity) {
+      const updated = {
+        ...cEntity,
+        workingDays: scheduleForm.workingDays,
+        workingHours: scheduleForm.workingHours,
+        fridayHours: scheduleForm.fridayHours,
+        emergencyHours: scheduleForm.emergencyHours,
+        consultationDuration: scheduleForm.consultationDuration,
+      };
+      setEntity(updated);
+      await saveCenter(updated);
+    } else if (!isCenter && dEntity) {
+      const updated = {
+        ...dEntity,
+        workingDays: scheduleForm.workingDays,
+        workingHours: scheduleForm.workingHours,
+        fridayHours: scheduleForm.fridayHours,
+        consultationDuration: scheduleForm.consultationDuration,
+      };
+      setEntity(updated);
+      await saveDepartment(updated);
+    }
+    setEditSchedule(false);
+    showMsg('تم حفظ إعدادات الجدولة بنجاح');
+  };
+
+  // Logo upload (simulated)
+  const handlePromoImageUpload = (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const result = reader.result as string;
+      if (isCenter && cEntity) {
+        const images = [...(cEntity.promoImages || [])];
+        images[index] = result;
+        const updated = { ...cEntity, promoImages: images };
+        setEntity(updated);
+        await saveCenter(updated);
+      } else if (!isCenter && dEntity) {
+        const images = [...(dEntity.promoImages || [])];
+        images[index] = result;
+        const updated = { ...dEntity, promoImages: images };
+        setEntity(updated);
+        await saveDepartment(updated);
+      }
+      showMsg('تم إضافة الصورة');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const removePromoImage = async (index: number) => {
+    if (isCenter && cEntity) {
+      const images = [...(cEntity.promoImages || [])];
+      images.splice(index, 1);
+      const updated = { ...cEntity, promoImages: images };
+      setEntity(updated);
+      await saveCenter(updated);
+    } else if (!isCenter && dEntity) {
+      const images = [...(dEntity.promoImages || [])];
+      images.splice(index, 1);
+      const updated = { ...dEntity, promoImages: images };
+      setEntity(updated);
+      await saveDepartment(updated);
+    }
+    showMsg('تم حذف الصورة');
+  };
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const result = reader.result as string;
+      if (isCenter && cEntity) {
+        const updated = { ...cEntity, logo: result };
+        setEntity(updated);
+        await saveCenter(updated);
+      } else if (!isCenter && dEntity) {
+        const updated = { ...dEntity, logo: result };
+        setEntity(updated);
+        await saveDepartment(updated);
+      }
+      showMsg('تم تحديث الشعار بنجاح');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Add doctor
+  const addDoctor = async () => {
+    if (!doctorForm.name || !cEntity) return;
+    const newDoctor: Doctor = {
+      id: 'doc-' + Date.now(),
+      name: doctorForm.name || '',
+      specialty: doctorForm.specialty || '',
+      title: doctorForm.title || 'أخصائي',
+      email: doctorForm.email || '',
+      phone: doctorForm.phone || '',
+      bio: doctorForm.bio || '',
+      image: doctorForm.image || '',
+      consultationDuration: doctorForm.consultationDuration || 15,
+      startTime: doctorForm.startTime || '09:00',
+      endTime: doctorForm.endTime || '14:00',
+      daysOff: doctorForm.daysOff || ['الجمعة'],
+      isActive: true,
+    };
+    const updated = { ...cEntity, doctors: [...cEntity.doctors, newDoctor] };
+    setEntity(updated);
+    await saveCenter(updated);
+    setDoctorForm({ name: '', specialty: '', title: 'أخصائي', email: '', phone: '', bio: '', image: '', consultationDuration: 15, startTime: '09:00', endTime: '14:00', daysOff: ['الجمعة'], isActive: true });
+    setShowDoctorForm(false);
+    showMsg('تم إضافة الطبيب بنجاح');
+  };
+
+  // Remove doctor
+  const removeDoctor = async (docId: string) => {
+    if (!cEntity) return;
+    if (!confirm('هل أنت متأكد من حذف هذا الطبيب؟')) return;
+    const updated = { ...cEntity, doctors: cEntity.doctors.filter(d => d.id !== docId) };
+    setEntity(updated);
+    await saveCenter(updated);
+    showMsg('تم حذف الطبيب');
+  };
+
+  // Copy URL
+  const copyUrl = () => {
+    navigator.clipboard.writeText(publicUrl).then(() => showMsg('تم نسخ الرابط!'));
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm border-b sticky top-0 z-50">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img src="/assets/linex-logo.jpg" alt="LinkEX" className="h-9 w-auto rounded bg-white px-1 py-0.5" />
+            <div>
+              <span className="font-bold text-gray-900">لوحة التحكم</span>
+              <span className="text-xs text-gray-500 block">
+                {isCenter ? 'مدير مركز طبي' : 'مدير عيادة'}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {msg && (
+              <span className="hidden md:flex text-sm text-green-600 bg-green-50 px-3 py-1 rounded-lg items-center gap-1">
+                <CheckCircle2 className="w-4 h-4" />{msg}
+              </span>
+            )}
+            <div className="hidden sm:flex items-center gap-2 text-sm text-gray-600 bg-gray-100 px-3 py-1.5 rounded-lg">
+              <Shield className="w-4 h-4" />
+              <span>{auth.admin?.fullName}</span>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => setShowPasswordForm(!showPasswordForm)} className="text-gray-600 hover:text-gray-800">
+              <User className="w-4 h-4" /><span className="hidden sm:inline">كلمة المرور</span>
+            </Button>
+            <Button variant="ghost" size="sm" onClick={async () => { await logout(); navigate('/'); }} className="text-red-500 hover:text-red-700 hover:bg-red-50 gap-1">
+              <LogOut className="w-4 h-4" /><span className="hidden sm:inline">خروج</span>
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      {/* Admin Announcement Banner */}
+      {activeAnns.length > 0 && (
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
+          {activeAnns.map(a => (
+            <div key={a.id} className="bg-gradient-to-r from-teal-600 to-teal-700 text-white p-4 rounded-xl shadow-lg mb-3">
+              <div className="flex items-start gap-3">
+                <img src="/assets/linex-logo.jpg" alt="Link Express" className="w-10 h-10 rounded-lg bg-white p-1 shrink-0" />
+                <div>
+                  <p className="text-sm font-bold mb-1">رسالة من Link Express</p>
+                  <p className="text-sm text-teal-100">{a.message}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Change Password Modal */}
+      {showPasswordForm && (
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
+          <Card className="p-4 border-2 border-teal-200 bg-teal-50/30">
+            <h4 className="font-bold text-gray-900 mb-3">تغيير كلمة المرور</h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <Input type="password" placeholder="كلمة المرور الحالية" value={passwordForm.current} onChange={e => setPasswordForm({ ...passwordForm, current: e.target.value, error: '' })} />
+              <Input type="password" placeholder="كلمة المرور الجديدة" value={passwordForm.newPass} onChange={e => setPasswordForm({ ...passwordForm, newPass: e.target.value, error: '' })} />
+              <Input type="password" placeholder="تأكيد الجديدة" value={passwordForm.confirm} onChange={e => setPasswordForm({ ...passwordForm, confirm: e.target.value, error: '' })} />
+            </div>
+            {passwordForm.error && <p className="text-sm text-red-500 mt-2">{passwordForm.error}</p>}
+            <div className="flex gap-2 mt-3">
+              <Button size="sm" variant="outline" onClick={() => setShowPasswordForm(false)}>إلغاء</Button>
+              <Button size="sm" className="bg-teal-600 hover:bg-teal-700" onClick={() => {
+                if (!passwordForm.current || !passwordForm.newPass) { setPasswordForm({ ...passwordForm, error: 'املأ جميع الحقول' }); return; }
+                if (passwordForm.newPass !== passwordForm.confirm) { setPasswordForm({ ...passwordForm, error: 'كلمتا المرور غير متطابقتين' }); return; }
+                if (passwordForm.current !== auth.admin?.password) { setPasswordForm({ ...passwordForm, error: 'كلمة المرور الحالية غير صحيحة' }); return; }
+                if (auth.admin) { const updated = { ...auth.admin, password: passwordForm.newPass }; updateAdmin(updated); setShowPasswordForm(false); setPasswordForm({ current: '', newPass: '', confirm: '', error: '' }); showMsg('تم تغيير كلمة المرور'); }
+              }}>حفظ</Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Entity Card */}
+        <Card className="p-6 mb-6 border-2 border-teal-100">
+          <div className="flex flex-col md:flex-row items-start gap-6">
+            {/* Logo */}
+            <div className="shrink-0">
+              <div
+                className="w-24 h-24 rounded-xl bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors overflow-hidden border-2 border-dashed border-gray-300"
+                onClick={() => fileInputRef.current?.click()}
+                title="انقر لتغيير الشعار"
+              >
+                {entity.logo ? (
+                  <img src={entity.logo} alt="logo" className="w-full h-full object-contain" />
+                ) : (
+                  <ImagePlus className="w-8 h-8 text-gray-400" />
+                )}
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleLogoUpload}
+              />
+              <p className="text-xs text-gray-400 text-center mt-1">انقر لتغيير الشعار</p>
+            </div>
+
+            {/* Info */}
+            <div className="flex-1">
+              <div className="flex items-center gap-3 flex-wrap mb-2">
+                <h1 className="text-2xl font-bold text-gray-900">{entity.name}</h1>
+                <Badge className={getStatusColor(entity.status)}>{getStatusLabel(entity.status)}</Badge>
+                {isCenter ? (
+                  <Badge className="bg-teal-100 text-teal-700">مركز طبي (ب)</Badge>
+                ) : (
+                  <Badge className="bg-blue-100 text-blue-700">عيادة (أ)</Badge>
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-gray-500 mb-2">
+                {isCenter && cEntity && cEntity.address && (
+                  <span className="flex items-center gap-1"><Building2 className="w-4 h-4" />{cEntity.address}</span>
+                )}
+                <span className="flex items-center gap-1" dir="ltr"><Phone className="w-4 h-4" />{isCenter ? (cEntity?.phone || '-') : (dEntity?.doctorPhone || '-')}</span>
+                <span className="flex items-center gap-1"><Mail className="w-4 h-4" />{isCenter ? (cEntity?.email || '-') : (dEntity?.doctorEmail || '-')}</span>
+              </div>
+
+              <div className="flex flex-wrap gap-4 text-xs text-gray-400">
+                <span>مدة الكشف: {isCenter ? (cEntity?.consultationDuration || 15) : (dEntity?.consultationDuration || 15)} دقيقة</span>
+                <span>فترة التجربة: {entity.freeTrialDays} يوم</span>
+                {entity.status !== 'closed' && <span>متبقي: {remDays > 0 ? remDays + ' يوم' : 'منتهي'}</span>}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="shrink-0 flex flex-col gap-2">
+              <Button size="sm" className="bg-teal-600 hover:bg-teal-700 gap-1" onClick={() => {
+                if (isCenter) navigate(`/center/${entity.id}`);
+                else if (dEntity?.centerId) navigate(`/center/${dEntity.centerId}/booking`);
+                else navigate(`/dept/${entity.id}/booking`);
+              }}>
+                <ExternalLink className="w-4 h-4" /> عرض الصفحة العامة
+              </Button>
+              <Button size="sm" variant="outline" className="gap-1" onClick={copyUrl}>
+                <Copy className="w-4 h-4" /> نسخ رابط الصفحة
+              </Button>
+            </div>
+          </div>
+        </Card>
+
+        {/* Tabs */}
+        <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+          {[
+            { id: 'info' as Tab, label: 'المعلومات الأساسية', icon: Edit3 },
+            { id: 'schedule' as Tab, label: 'أوقات العمل والجدولة', icon: Clock },
+            ...(isCenter ? [{ id: 'doctors' as Tab, label: 'الأطباء والتخصصات', icon: Stethoscope }] : []),
+            { id: 'visibility' as Tab, label: 'الظهور والإعلان', icon: Eye },
+            { id: 'share' as Tab, label: 'مشاركة الرابط', icon: ExternalLink },
+          ].map(t => (
+            <Button
+              key={t.id}
+              variant={tab === t.id ? 'default' : 'outline'}
+              onClick={() => setTab(t.id)}
+              className={tab === t.id ? 'bg-teal-600 hover:bg-teal-700 gap-2' : 'gap-2'}
+            >
+              <t.icon className="w-4 h-4" />{t.label}
+            </Button>
+          ))}
+        </div>
+
+        {/* INFO TAB */}
+        {tab === 'info' && (
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-teal-600" />
+                المعلومات الأساسية
+              </h3>
+              <Button size="sm" variant="outline" onClick={() => setEditInfo(!editInfo)}>
+                {editInfo ? 'إلغاء' : <><Edit3 className="w-4 h-4" /> تعديل</>}
+              </Button>
+            </div>
+
+            {!editInfo ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-gray-50 p-3 rounded-lg">
+                    <Label className="text-xs text-gray-400">الاسم</Label>
+                    <p className="font-semibold text-gray-900">{entity.name}</p>
+                  </div>
+                  {isCenter && cEntity && (
+                    <div className="bg-gray-50 p-3 rounded-lg">
+                      <Label className="text-xs text-gray-400">العنوان</Label>
+                      <p className="font-semibold text-gray-900">{cEntity.address || '-'}</p>
+                    </div>
+                  )}
+                  <div className="bg-gray-50 p-3 rounded-lg">
+                    <Label className="text-xs text-gray-400">رقم الهاتف</Label>
+                    <p className="font-semibold text-gray-900" dir="ltr">{isCenter ? (cEntity?.phone || '-') : (dEntity?.doctorPhone || '-')}</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded-lg">
+                    <Label className="text-xs text-gray-400">البريد الإلكتروني</Label>
+                    <p className="font-semibold text-gray-900" dir="ltr">{isCenter ? (cEntity?.email || '-') : (dEntity?.doctorEmail || '-')}</p>
+                  </div>
+                  {!isCenter && dEntity && (
+                    <>
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <Label className="text-xs text-gray-400">اسم الطبيب</Label>
+                        <p className="font-semibold text-gray-900">{dEntity.doctorName || '-'}</p>
+                      </div>
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <Label className="text-xs text-gray-400">الوصف</Label>
+                        <p className="font-semibold text-gray-900">{dEntity.description || '-'}</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>الاسم {isCenter ? 'المركز' : 'العيادة'} <span className="text-red-500">*</span></Label>
+                  <Input value={infoForm.name} onChange={e => setInfoForm({ ...infoForm, name: e.target.value })} />
+                </div>
+                {isCenter && (
+                  <div className="space-y-2">
+                    <Label>العنوان</Label>
+                    <Input value={infoForm.address} onChange={e => setInfoForm({ ...infoForm, address: e.target.value })} />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label>رقم الهاتف</Label>
+                  <Input value={infoForm.phone} onChange={e => setInfoForm({ ...infoForm, phone: e.target.value })} dir="ltr" />
+                </div>
+                <div className="space-y-2">
+                  <Label>البريد الإلكتروني</Label>
+                  <Input value={infoForm.email} onChange={e => setInfoForm({ ...infoForm, email: e.target.value })} dir="ltr" />
+                </div>
+                <Button onClick={saveInfo} className="bg-teal-600 hover:bg-teal-700 gap-2">
+                  <Save className="w-4 h-4" /> حفظ التغييرات
+                </Button>
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* SCHEDULE TAB */}
+        {tab === 'schedule' && (
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-teal-600" />
+                أوقات العمل والجدولة
+              </h3>
+              <Button size="sm" variant="outline" onClick={() => setEditSchedule(!editSchedule)}>
+                {editSchedule ? 'إلغاء' : <><Edit3 className="w-4 h-4" /> تعديل</>}
+              </Button>
+            </div>
+
+            {!editSchedule ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-gray-50 p-3 rounded-lg">
+                    <Label className="text-xs text-gray-400">أيام العمل</Label>
+                    <p className="font-semibold text-gray-900">{scheduleForm.workingDays}</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded-lg">
+                    <Label className="text-xs text-gray-400">ساعات العمل</Label>
+                    <p className="font-semibold text-gray-900">{scheduleForm.workingHours}</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded-lg">
+                    <Label className="text-xs text-gray-400">ساعات يوم الجمعة</Label>
+                    <p className="font-semibold text-gray-900">{scheduleForm.fridayHours}</p>
+                  </div>
+                  {isCenter && (
+                    <div className="bg-gray-50 p-3 rounded-lg">
+                      <Label className="text-xs text-gray-400">طوارئ</Label>
+                      <p className="font-semibold text-gray-900">{scheduleForm.emergencyHours || '-'}</p>
+                    </div>
+                  )}
+                  <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                    <Label className="text-xs text-amber-600">مدة كل كشف (بالدقائق)</Label>
+                    <p className="font-semibold text-amber-800 text-xl">{scheduleForm.consultationDuration} دقيقة</p>
+                    <p className="text-xs text-amber-500 mt-1">
+                      هذا يعني أن النظام سيُنشئ موعد كل {scheduleForm.consultationDuration} دقيقة
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>أيام العمل</Label>
+                    <Input value={scheduleForm.workingDays} onChange={e => setScheduleForm({ ...scheduleForm, workingDays: e.target.value })} placeholder="السبت - الخميس" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>ساعات العمل</Label>
+                    <Input value={scheduleForm.workingHours} onChange={e => setScheduleForm({ ...scheduleForm, workingHours: e.target.value })} placeholder="8:00 ص - 10:00 م" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>ساعات يوم الجمعة</Label>
+                    <Input value={scheduleForm.fridayHours} onChange={e => setScheduleForm({ ...scheduleForm, fridayHours: e.target.value })} placeholder="4:00 م - 9:00 م" />
+                  </div>
+                  {isCenter && (
+                    <div className="space-y-2">
+                      <Label>طوارئ</Label>
+                      <Input value={scheduleForm.emergencyHours} onChange={e => setScheduleForm({ ...scheduleForm, emergencyHours: e.target.value })} placeholder="24 ساعة" />
+                    </div>
+                  )}
+                  <div className="space-y-2 md:col-span-2 bg-amber-50 p-4 rounded-xl border border-amber-200">
+                    <Label className="text-amber-700">مدة كل كشف (بالدقائق) <span className="text-red-500">*</span></Label>
+                    <Input
+                      type="number"
+                      min={5}
+                      max={120}
+                      value={scheduleForm.consultationDuration}
+                      onChange={e => setScheduleForm({ ...scheduleForm, consultationDuration: Number(e.target.value) })}
+                    />
+                    <p className="text-xs text-amber-600 mt-1">
+                      حدد كم دقيقة يستغرق كل كشف. النظام سيحسب المواعيد تلقائياً.
+                      مثال: 15 دقيقة = 4 مراجعات في الساعة
+                    </p>
+                  </div>
+                </div>
+                <Button onClick={saveSchedule} className="bg-teal-600 hover:bg-teal-700 gap-2">
+                  <Save className="w-4 h-4" /> حفظ إعدادات الجدولة
+                </Button>
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* DOCTORS TAB (center only) */}
+        {tab === 'doctors' && isCenter && cEntity && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <Stethoscope className="w-5 h-5 text-teal-600" />
+                الأطباء والتخصصات ({cEntity.doctors.length})
+              </h3>
+              <Button size="sm" className="bg-teal-600 hover:bg-teal-700 gap-1" onClick={() => setShowDoctorForm(true)}>
+                <Plus className="w-4 h-4" /> إضافة طبيب
+              </Button>
+            </div>
+
+            {/* Doctor list */}
+            {cEntity.doctors.length === 0 ? (
+              <Card className="p-8 text-center text-gray-500">
+                <Stethoscope className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                <p>لا يوجد أطباء مسجلين</p>
+                <p className="text-sm text-gray-400 mt-1">أضف أول طبيب لمركزك</p>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {cEntity.doctors.map(doc => (
+                  <Card key={doc.id} className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="w-12 h-12 rounded-full bg-teal-100 flex items-center justify-center shrink-0 overflow-hidden">
+                        {doc.image ? <img src={doc.image} alt={doc.name} className="w-full h-full object-cover" /> : <User className="w-6 h-6 text-teal-600" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-gray-900">{doc.name}</h4>
+                        <p className="text-sm text-teal-600">{doc.specialty} <Badge variant="outline" className="text-xs mr-1">{doc.title}</Badge></p>
+                        {doc.email && <p className="text-xs text-gray-500" dir="ltr"><Mail className="w-3 h-3 inline ml-1" />{doc.email}</p>}
+                        {doc.phone && <p className="text-xs text-gray-500" dir="ltr"><Phone className="w-3 h-3 inline ml-1" />{doc.phone}</p>}
+                        <p className="text-xs text-gray-500"><CalendarDays className="w-3 h-3 inline ml-1" />{doc.startTime} - {doc.endTime} | كشف {doc.consultationDuration} دقيقة</p>
+                        {doc.daysOff.length > 0 && <p className="text-xs text-amber-600">عطلة: {doc.daysOff.join('، ')}</p>}
+                        {doc.bio && <p className="text-xs text-gray-400 mt-1 line-clamp-2">{doc.bio}</p>}
+                      </div>
+                      <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 shrink-0" onClick={() => removeDoctor(doc.id)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {/* Add Doctor Form */}
+            {showDoctorForm && (
+              <Card className="p-6 border-2 border-teal-200 bg-teal-50/30">
+                <h4 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+                  <Plus className="w-5 h-5 text-teal-600" />
+                  إضافة طبيب جديد
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label className="text-xs">اسم الطبيب <span className="text-red-500">*</span></Label>
+                    <Input value={doctorForm.name} onChange={e => setDoctorForm({ ...doctorForm, name: e.target.value })} placeholder="د. أحمد محمد" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">التخصص <span className="text-red-500">*</span></Label>
+                    <Input value={doctorForm.specialty} onChange={e => setDoctorForm({ ...doctorForm, specialty: e.target.value })} placeholder="جراحة العظام" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">اللقب</Label>
+                    <select value={doctorForm.title} onChange={e => setDoctorForm({ ...doctorForm, title: e.target.value })} className="w-full h-10 rounded-md border border-input bg-white px-3 text-sm">
+                      <option value="استشاري">استشاري</option>
+                      <option value="أخصائي">أخصائي</option>
+                      <option value="طبيب">طبيب</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">مدة الكشف (دقيقة)</Label>
+                    <Input type="number" min={5} max={120} value={doctorForm.consultationDuration} onChange={e => setDoctorForm({ ...doctorForm, consultationDuration: Number(e.target.value) })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">بداية الدوام</Label>
+                    <Input value={doctorForm.startTime} onChange={e => setDoctorForm({ ...doctorForm, startTime: e.target.value })} placeholder="09:00" dir="ltr" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">نهاية الدوام</Label>
+                    <Input value={doctorForm.endTime} onChange={e => setDoctorForm({ ...doctorForm, endTime: e.target.value })} placeholder="14:00" dir="ltr" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">البريد الإلكتروني (للتقويم)</Label>
+                    <Input value={doctorForm.email} onChange={e => setDoctorForm({ ...doctorForm, email: e.target.value })} placeholder="doctor@email.com" dir="ltr" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">رقم الهاتف</Label>
+                    <Input value={doctorForm.phone} onChange={e => setDoctorForm({ ...doctorForm, phone: e.target.value })} placeholder="07xxxxxxxx" dir="ltr" />
+                  </div>
+                  <div className="space-y-1 md:col-span-2">
+                    <Label className="text-xs">نبذة عن الطبيب</Label>
+                    <Input value={doctorForm.bio} onChange={e => setDoctorForm({ ...doctorForm, bio: e.target.value })} placeholder="خبرة 10 سنوات في..." />
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <Button variant="outline" onClick={() => setShowDoctorForm(false)}>إلغاء</Button>
+                  <Button className="bg-teal-600 hover:bg-teal-700 gap-2" onClick={addDoctor} disabled={!doctorForm.name || !doctorForm.specialty}>
+                    <Save className="w-4 h-4" /> إضافة الطبيب
+                  </Button>
+                </div>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {/* VISIBILITY TAB */}
+        {tab === 'visibility' && (
+          <div className="space-y-6">
+            <Card className="p-6">
+              <h3 className="text-lg font-bold text-gray-900 mb-4" style={{ textAlign: 'center' }}>
+                <Eye className="w-5 h-5 inline text-teal-600 ml-2" />
+                إعدادات الظهور في الصفحة الرئيسية
+              </h3>
+
+              {/* Appearance Type */}
+              <div className="mb-6">
+                <Label className="block mb-3">حالة الظهور</Label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <button
+                    onClick={async () => {
+                      const updated = isCenter
+                        ? { ...cEntity!, appearanceType: 'hidden' as const, appearanceExpiry: '' }
+                        : { ...dEntity!, appearanceType: 'hidden' as const, appearanceExpiry: '' };
+                      isCenter ? setEntity(updated as Center) : setEntity(updated as Department);
+                      isCenter ? await saveCenter(updated as Center) : await saveDepartment(updated as Department);
+                      showMsg('تم الحفظ - المركز مخفي الآن');
+                    }}
+                    className={`p-4 rounded-xl border-2 text-center transition-all ${(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'hidden' ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
+                  >
+                    <EyeOff className={`w-8 h-8 mx-auto mb-2 ${(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'hidden' ? 'text-red-600' : 'text-gray-400'}`} />
+                    <p className="font-bold">مخفي</p>
+                    <p className="text-xs text-gray-500">لا يظهر في الصفحة الرئيسية</p>
+                  </button>
+
+                  <button
+                    onClick={async () => {
+                      const expiry = new Date(Date.now() + 3 * 86400000).toISOString();
+                      const updated = isCenter
+                        ? { ...cEntity!, appearanceType: 'free_trial' as const, appearanceExpiry: expiry }
+                        : { ...dEntity!, appearanceType: 'free_trial' as const, appearanceExpiry: expiry };
+                      isCenter ? setEntity(updated as Center) : setEntity(updated as Department);
+                      isCenter ? await saveCenter(updated as Center) : await saveDepartment(updated as Department);
+                      showMsg('تم تفعيل الظهور المجاني لمدة 3 أيام');
+                    }}
+                    className={`p-4 rounded-xl border-2 text-center transition-all ${(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'free_trial' ? 'border-teal-500 bg-teal-50' : 'border-gray-200'}`}
+                  >
+                    <Eye className={`w-8 h-8 mx-auto mb-2 ${(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'free_trial' ? 'text-teal-600' : 'text-gray-400'}`} />
+                    <p className="font-bold">تجربة مجانية</p>
+                    <p className="text-xs text-gray-500">3 أيام ظهور مجاني</p>
+                  </button>
+
+                  <button
+                    onClick={async () => {
+                      const expiry = new Date(Date.now() + 30 * 86400000).toISOString();
+                      const updated = isCenter
+                        ? { ...cEntity!, appearanceType: 'paid' as const, appearanceExpiry: expiry }
+                        : { ...dEntity!, appearanceType: 'paid' as const, appearanceExpiry: expiry };
+                      isCenter ? setEntity(updated as Center) : setEntity(updated as Department);
+                      isCenter ? await saveCenter(updated as Center) : await saveDepartment(updated as Department);
+                      showMsg('تم تفعيل الظهور المدفوع لمدة شهر');
+                    }}
+                    className={`p-4 rounded-xl border-2 text-center transition-all ${(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'paid' ? 'border-amber-500 bg-amber-50' : 'border-gray-200'}`}
+                  >
+                    <Megaphone className={`w-8 h-8 mx-auto mb-2 ${(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'paid' ? 'text-amber-600' : 'text-gray-400'}`} />
+                    <p className="font-bold">اشتراك شهري</p>
+                    <p className="text-xs text-gray-500">ظهور لمدة 30 يوم</p>
+                  </button>
+                </div>
+              </div>
+
+              {/* Promo Text */}
+              <div className="mb-6">
+                <Label className="block mb-2">نبذة دعائية عن المركز</Label>
+                <textarea
+                  value={isCenter ? (cEntity?.promoText || '') : (dEntity?.promoText || '')}
+                  onChange={async e => {
+                    const updated = isCenter
+                      ? { ...cEntity!, promoText: e.target.value }
+                      : { ...dEntity!, promoText: e.target.value };
+                    isCenter ? setEntity(updated as Center) : setEntity(updated as Department);
+                    isCenter ? await saveCenter(updated as Center) : await saveDepartment(updated as Department);
+                  }}
+                  placeholder="اكتب نبذة قصيرة تظهر للزائرين في الصفحة الرئيسية..."
+                  rows={3}
+                  className="w-full rounded-md border border-input bg-white px-3 py-2 text-sm"
+                />
+              </div>
+
+              {/* Promo Images Upload */}
+              <div className="mb-6">
+                <Label className="block mb-3">صور دعائية (3 صور كحد أقصى)</Label>
+                <p className="text-xs text-gray-500 mb-3">هذه الصور تظهر في الصفحة الرئيسية عند تفعيل الظهور الإعلاني</p>
+                <div className="grid grid-cols-3 gap-3">
+                  {/* Image 1 */}
+                  <div className="relative">
+                    <div className="aspect-square rounded-xl border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden bg-gray-50 hover:bg-gray-100 cursor-pointer" onClick={() => document.getElementById('promo-img-1')?.click()}>
+                      {(isCenter ? cEntity?.promoImages?.[0] : dEntity?.promoImages?.[0]) ? (
+                        <img src={isCenter ? cEntity?.promoImages?.[0] : dEntity?.promoImages?.[0]} alt="Promo 1" className="w-full h-full object-cover" />
+                      ) : (
+                        <ImagePlus className="w-8 h-8 text-gray-400" />
+                      )}
+                    </div>
+                    <input id="promo-img-1" type="file" accept="image/*" className="hidden" onChange={e => handlePromoImageUpload(e, 0)} />
+                    {(isCenter ? cEntity?.promoImages?.[0] : dEntity?.promoImages?.[0]) && (
+                      <button className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs" onClick={() => removePromoImage(0)}>×</button>
+                    )}
+                  </div>
+                  {/* Image 2 */}
+                  <div className="relative">
+                    <div className="aspect-square rounded-xl border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden bg-gray-50 hover:bg-gray-100 cursor-pointer" onClick={() => document.getElementById('promo-img-2')?.click()}>
+                      {(isCenter ? cEntity?.promoImages?.[1] : dEntity?.promoImages?.[1]) ? (
+                        <img src={isCenter ? cEntity?.promoImages?.[1] : dEntity?.promoImages?.[1]} alt="Promo 2" className="w-full h-full object-cover" />
+                      ) : (
+                        <ImagePlus className="w-8 h-8 text-gray-400" />
+                      )}
+                    </div>
+                    <input id="promo-img-2" type="file" accept="image/*" className="hidden" onChange={e => handlePromoImageUpload(e, 1)} />
+                    {(isCenter ? cEntity?.promoImages?.[1] : dEntity?.promoImages?.[1]) && (
+                      <button className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs" onClick={() => removePromoImage(1)}>×</button>
+                    )}
+                  </div>
+                  {/* Image 3 */}
+                  <div className="relative">
+                    <div className="aspect-square rounded-xl border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden bg-gray-50 hover:bg-gray-100 cursor-pointer" onClick={() => document.getElementById('promo-img-3')?.click()}>
+                      {(isCenter ? cEntity?.promoImages?.[2] : dEntity?.promoImages?.[2]) ? (
+                        <img src={isCenter ? cEntity?.promoImages?.[2] : dEntity?.promoImages?.[2]} alt="Promo 3" className="w-full h-full object-cover" />
+                      ) : (
+                        <ImagePlus className="w-8 h-8 text-gray-400" />
+                      )}
+                    </div>
+                    <input id="promo-img-3" type="file" accept="image/*" className="hidden" onChange={e => handlePromoImageUpload(e, 2)} />
+                    {(isCenter ? cEntity?.promoImages?.[2] : dEntity?.promoImages?.[2]) && (
+                      <button className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs" onClick={() => removePromoImage(2)}>×</button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Current Status */}
+              <div className="bg-gray-50 rounded-xl p-4 text-center">
+                <p className="text-sm text-gray-600">
+                  {(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'hidden' && 'المركز مخفي حالياً عن الزائرين'}
+                  {(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'free_trial' && 'الظهور مجاني لمدة 3 أيام'}
+                  {(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'paid' && 'الظهور مفعل باشتراك شهري'}
+                </p>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* SHARE TAB */}
+        {tab === 'share' && (
+          <Card className="p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <ExternalLink className="w-5 h-5 text-teal-600" />
+              مشاركة رابط صفحتك
+            </h3>
+            <p className="text-gray-500 mb-4">
+              انسخ هذا الرابط وشاركه مع مرضاك على فيسبوك، واتساب، تلغرام، أو اطبعه على كرتك:
+            </p>
+            <div className="flex gap-2 mb-6">
+              <div className="flex-1 bg-gray-100 p-3 rounded-lg text-sm font-mono text-gray-700 break-all" dir="ltr">
+                {publicUrl}
+              </div>
+              <Button onClick={copyUrl} className="bg-teal-600 hover:bg-teal-700 gap-1 shrink-0">
+                <Copy className="w-4 h-4" /> نسخ
+              </Button>
+            </div>
+
+            <div className="bg-teal-50 p-4 rounded-xl border border-teal-200">
+              <h4 className="font-semibold text-teal-800 mb-2">كيف تستخدم الرابط؟</h4>
+              <ul className="text-sm text-teal-700 space-y-2">
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 shrink-0" /> أنشره على صفحتك في فيسبوك</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 shrink-0" /> أرسله لمرضاك عبر واتساب</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 shrink-0" /> اطبعه على الكرت الشخصي</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 shrink-0" /> ضعه في البايو على إنستغرام</li>
+              </ul>
+            </div>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
