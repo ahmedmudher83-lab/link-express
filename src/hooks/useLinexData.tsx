@@ -112,10 +112,26 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
 
     const load = async () => {
       try {
-        // Seed default data if first run
-        await seedDefaultData();
+        // Try localStorage first
+        let localCenters: Center[] = [];
+        let localDepts: Department[] = [];
+        try {
+          const storedCenters = localStorage.getItem('linex_centers');
+          const storedDepts = localStorage.getItem('linex_departments');
+          if (storedCenters) localCenters = JSON.parse(storedCenters);
+          if (storedDepts) localDepts = JSON.parse(storedDepts);
+        } catch { /* ignore */ }
 
-        // Load all data
+        if (localCenters.length > 0 || localDepts.length > 0) {
+          if (!mounted) return;
+          setCenters(localCenters);
+          setDepartments(localDepts);
+          setLoading(false);
+          return;
+        }
+
+        // Fallback to Firebase
+        await seedDefaultData();
         const [c, d, l, p, pm, anns] = await Promise.all([
           getAllCenters(),
           getAllDepartments(),
@@ -135,6 +151,13 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
         setAnnouncements(anns);
       } catch (err) {
         console.error('Error loading data:', err);
+        // Use localStorage as last resort
+        try {
+          const sc = localStorage.getItem('linex_centers');
+          const sd = localStorage.getItem('linex_departments');
+          if (sc) setCenters(JSON.parse(sc));
+          if (sd) setDepartments(JSON.parse(sd));
+        } catch { /* ignore */ }
       } finally {
         if (mounted) setLoading(false);
       }
@@ -193,7 +216,10 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
       expiresAt: exp,
       status: computeStatus(true, c.createdAt, exp, c.isPaid, c.freeTrialDays) as Center['status']
     };
-    // Persist to Firebase in background
+    // Persist to localStorage
+    const existing = JSON.parse(localStorage.getItem('linex_centers') || '[]');
+    localStorage.setItem('linex_centers', JSON.stringify([...existing, withExp]));
+    // Also try Firebase in background
     saveCenter(withExp).catch(() => {});
     setCenters(prev => [...prev, withExp]);
   }, []);
@@ -218,6 +244,10 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
       expiresAt: exp,
       status: computeStatus(true, d.createdAt, exp, d.isPaid, d.freeTrialDays) as Department['status']
     };
+    // Persist to localStorage
+    const existing = JSON.parse(localStorage.getItem('linex_departments') || '[]');
+    localStorage.setItem('linex_departments', JSON.stringify([...existing, withExp]));
+    // Also try Firebase in background
     saveDepartment(withExp).catch(() => {});
     setDepartments(prev => [...prev, withExp]);
   }, []);
@@ -351,38 +381,39 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
     });
   }, [announcements]);
 
+  const value = {
+    loading,
+    centers,
+    departments,
+    logs,
+    pricing,
+    paymentMethods,
+    addCenter,
+    closeCenter,
+    addDepartment,
+    closeDepartment,
+    updatePricing,
+    renewCenter,
+    renewDepartment,
+    getCenterById,
+    getActiveCenters,
+    getDepartmentsByCenter,
+    getIndependentDepartments,
+    getDepartmentById,
+    getActiveDepartments,
+    addLog,
+    updatePaymentMethods,
+    getEnabledPaymentMethods,
+    togglePaymentMethod,
+    announcements,
+    addAnnouncement,
+    removeAnnouncement,
+    getActiveAnnouncements,
+    refreshStatuses,
+  };
+
   return (
-    <LinexDataCtx.Provider value={{
-      loading,
-      centers,
-      departments,
-      logs,
-      pricing,
-      paymentMethods,
-      addCenter,
-      closeCenter,
-      addDepartment,
-      closeDepartment,
-      updatePricing,
-      renewCenter,
-      renewDepartment,
-      getCenterById,
-      getActiveCenters,
-      getDepartmentsByCenter,
-      getIndependentDepartments,
-      getDepartmentById,
-      getActiveDepartments,
-      addLog,
-      updatePaymentMethods,
-      getEnabledPaymentMethods,
-      togglePaymentMethod,
-      announcements,
-      addAnnouncement,
-      removeAnnouncement,
-      getActiveAnnouncements,
-      refreshStatuses,
-      refreshData,
-    }}>
+    <LinexDataCtx.Provider value={value}>
       {children}
     </LinexDataCtx.Provider>
   );
