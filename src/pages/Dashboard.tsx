@@ -13,15 +13,19 @@ import { Badge } from '@/components/ui/badge';
 import {
   Building2, Clock, ImagePlus, Save, LogOut, User, Phone, Mail,
   Plus, Trash2, ExternalLink, Copy, CheckCircle2, AlertCircle,
-  Stethoscope, CalendarDays, Shield, Edit3, Eye, EyeOff, Megaphone
+  Stethoscope, CalendarDays, Shield, Edit3, Eye, EyeOff, Megaphone,
+  Hospital
 } from 'lucide-react';
 
-type Tab = 'info' | 'schedule' | 'doctors' | 'visibility' | 'share';
+type Tab = 'info' | 'schedule' | 'doctors' | 'departments' | 'visibility' | 'share';
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { auth, logout, updateAdmin } = useAuth();
-  const { centers, departments, getActiveAnnouncements } = useLinexData();
+  const {
+    centers, departments, getActiveAnnouncements,
+    addDepartment, closeDepartment
+  } = useLinexData();
 
   // Get managed entity
   const [entity, setEntity] = useState<Center | Department | null>(null);
@@ -42,6 +46,15 @@ export default function Dashboard() {
   const [doctorForm, setDoctorForm] = useState<Partial<Doctor>>({
     name: '', specialty: '', title: 'أخصائي', email: '', phone: '', bio: '', image: '',
     consultationDuration: 15, startTime: '09:00', endTime: '14:00', daysOff: ['الجمعة'], isActive: true
+  });
+
+  // Department form (for centers)
+  const [showDeptForm, setShowDeptForm] = useState(false);
+  const [deptForm, setDeptForm] = useState({
+    name: '', description: '', doctorName: '', doctorEmail: '', doctorPhone: '',
+    specialty: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م',
+    fridayHours: '4:00 م - 9:00 م', consultationDuration: 15,
+    startTime: '08:00', endTime: '22:00', daysOff: ['الجمعة'], price: 0
   });
 
   // Password change state
@@ -122,6 +135,11 @@ export default function Dashboard() {
   const isCenter = entityType === 'center';
   const cEntity = isCenter ? entity as Center : null;
   const dEntity = !isCenter ? entity as Department : null;
+
+  // Get departments linked to this center (for center admins)
+  const myDepts = isCenter && cEntity
+    ? departments.filter(d => d.centerId === cEntity.id)
+    : [];
 
   // Get public URL
   const deptCenterId = !isCenter ? (entity as Department).centerId : null;
@@ -272,6 +290,62 @@ export default function Dashboard() {
     showMsg('تم حذف الطبيب');
   };
 
+  // Add department - each department has its own schedule
+  const addDept = async () => {
+    if (!cEntity || !auth.admin) return;
+    if (!deptForm.name || !deptForm.doctorEmail) { showMsg('يرجى إدخال اسم القسم وإيميل الطبيب'); return; }
+
+    const newDept: Department = {
+      id: 'dept-' + Date.now(),
+      name: deptForm.name,
+      description: deptForm.description,
+      icon: 'Stethoscope',
+      doctorName: deptForm.doctorName,
+      doctorEmail: deptForm.doctorEmail,
+      doctorPhone: deptForm.doctorPhone,
+      logo: '',
+      workingDays: deptForm.workingDays,
+      workingHours: deptForm.workingHours,
+      fridayHours: deptForm.fridayHours,
+      consultationDuration: deptForm.consultationDuration,
+      // Department has its own time slots - inherits from center but can be customized
+      startTime: deptForm.startTime || '08:00',
+      endTime: deptForm.endTime || '22:00',
+      daysOff: deptForm.daysOff || ['الجمعة'],
+      centerId: cEntity.id,
+      adminId: auth.admin.id,
+      activationType: 'free',
+      subscriptionPrice: 0,
+      freeTrialDays: 7,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(),
+      isPaid: false,
+      isActive: true,
+      status: 'trial' as Department['status'],
+      appearanceType: 'free_trial',
+      appearanceExpiry: new Date(Date.now() + 3 * 86400000).toISOString(),
+      promoImages: [],
+      promoText: ''
+    };
+
+    // Save to both localStorage and context
+    const existing = JSON.parse(localStorage.getItem('linex_departments') || '[]');
+    existing.push(newDept);
+    localStorage.setItem('linex_departments', JSON.stringify(existing));
+    addDepartment(newDept);
+
+    setShowDeptForm(false);
+    setDeptForm({ name: '', description: '', doctorName: '', doctorEmail: '', doctorPhone: '', specialty: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', consultationDuration: 15, startTime: '08:00', endTime: '22:00', daysOff: ['الجمعة'], price: 0 });
+    showMsg(`تم إضافة قسم "${deptForm.name}" بنجاح!`);
+  };
+
+  // Remove department
+  const removeDept = async (deptId: string) => {
+    if (!confirm('هل أنت متأكد من حذف هذا القسم؟')) return;
+    closeDepartment(deptId);
+    showMsg('تم حذف القسم');
+  };
+
   // Copy URL
   const copyUrl = () => {
     navigator.clipboard.writeText(publicUrl).then(() => showMsg('تم نسخ الرابط!'));
@@ -283,7 +357,7 @@ export default function Dashboard() {
       <header className="bg-white shadow-sm border-b sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src="/assets/linex-logo.jpg" alt="LinkEX" className="h-9 w-auto rounded bg-white px-1 py-0.5" />
+            <img src="/assets/linex-logo-transparent.png" alt="LinkEX" className="h-9 w-auto rounded" style={{ backgroundColor: 'transparent', mixBlendMode: 'multiply' }} />
             <div>
               <span className="font-bold text-gray-900">لوحة التحكم</span>
               <span className="text-xs text-gray-500 block">
@@ -317,9 +391,9 @@ export default function Dashboard() {
           {activeAnns.map(a => (
             <div key={a.id} className="bg-gradient-to-r from-teal-600 to-teal-700 text-white p-4 rounded-xl shadow-lg mb-3">
               <div className="flex items-start gap-3">
-                <img src="/assets/linex-logo.jpg" alt="Link Express" className="w-10 h-10 rounded-lg bg-white p-1 shrink-0" />
+                <img src="/assets/linex-logo-transparent.png" alt="LinkEX" className="w-10 h-10 rounded-lg bg-white p-1 shrink-0" />
                 <div>
-                  <p className="text-sm font-bold mb-1">رسالة من Link Express</p>
+                  <p className="text-sm font-bold mb-1">رسالة من <span style={{ color: '#2c3e50' }}>Link</span><span style={{ color: '#FF5722' }}>EX</span></p>
                   <p className="text-sm text-teal-100">{a.message}</p>
                 </div>
               </div>
@@ -428,6 +502,7 @@ export default function Dashboard() {
             { id: 'info' as Tab, label: 'المعلومات الأساسية', icon: Edit3 },
             { id: 'schedule' as Tab, label: 'أوقات العمل والجدولة', icon: Clock },
             ...(isCenter ? [{ id: 'doctors' as Tab, label: 'الأطباء والتخصصات', icon: Stethoscope }] : []),
+            ...(isCenter ? [{ id: 'departments' as Tab, label: 'الأقسام الطبية', icon: Hospital }] : []),
             { id: 'visibility' as Tab, label: 'الظهور والإعلان', icon: Eye },
             { id: 'share' as Tab, label: 'مشاركة الرابط', icon: ExternalLink },
           ].map(t => (
@@ -435,7 +510,8 @@ export default function Dashboard() {
               key={t.id}
               variant={tab === t.id ? 'default' : 'outline'}
               onClick={() => setTab(t.id)}
-              className={tab === t.id ? 'bg-teal-600 hover:bg-teal-700 gap-2' : 'gap-2'}
+              className={tab === t.id ? 'gap-2' : 'gap-2'}
+              style={tab === t.id ? { backgroundColor: '#5C7A6B', color: 'white' } : {}}
             >
               <t.icon className="w-4 h-4" />{t.label}
             </Button>
@@ -711,6 +787,125 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* DEPARTMENTS TAB */}
+        {tab === 'departments' && isCenter && cEntity && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <Hospital className="w-5 h-5" style={{ color: '#5C7A6B' }} />
+                الأقسام الطبية ({myDepts.length})
+              </h3>
+              <Button size="sm" className="hover:opacity-90 gap-1" style={{ backgroundColor: '#5C7A6B' }} onClick={() => setShowDeptForm(true)}>
+                <Plus className="w-4 h-4" /> إضافة قسم
+              </Button>
+            </div>
+
+            {myDepts.length === 0 ? (
+              <Card className="p-8 text-center text-gray-500">
+                <Hospital className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                <p>لا يوجد أقسام مسجلة</p>
+                <p className="text-sm text-gray-400 mt-1">أضف أول قسم طبي لمركزك</p>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {myDepts.map(dept => (
+                  <Card key={dept.id} className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: '#E4E8E0' }}>
+                        <Hospital className="w-6 h-6" style={{ color: '#5C7A6B' }} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-gray-900">{dept.name}</h4>
+                        {dept.description && <p className="text-sm text-gray-500">{dept.description}</p>}
+                        {dept.doctorName && <p className="text-sm text-teal-600">{dept.doctorName}</p>}
+                        {dept.doctorEmail && <p className="text-xs text-gray-500" dir="ltr"><Mail className="w-3 h-3 inline ml-1" />{dept.doctorEmail}</p>}
+                        {dept.doctorPhone && <p className="text-xs text-gray-500" dir="ltr"><Phone className="w-3 h-3 inline ml-1" />{dept.doctorPhone}</p>}
+                        <p className="text-xs text-gray-400 mt-1">{dept.workingDays} | {dept.workingHours}</p>
+                      </div>
+                      <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 shrink-0" onClick={() => removeDept(dept.id)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {/* Add Department Form */}
+            {showDeptForm && (
+              <Card className="p-6 border-2" style={{ borderColor: '#5C7A6B', backgroundColor: '#F8F6F0' }}>
+                <h4 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+                  <Plus className="w-5 h-5" style={{ color: '#5C7A6B' }} />
+                  إضافة قسم طبي جديد
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label className="text-xs">اسم القسم <span className="text-red-500">*</span></Label>
+                    <Input value={deptForm.name} onChange={e => setDeptForm({ ...deptForm, name: e.target.value })} placeholder="قسم الأسنان" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">التخصص</Label>
+                    <Input value={deptForm.specialty} onChange={e => setDeptForm({ ...deptForm, specialty: e.target.value })} placeholder="طب الأسنان" />
+                  </div>
+                  <div className="space-y-1 md:col-span-2">
+                    <Label className="text-xs">وصف القسم</Label>
+                    <Input value={deptForm.description} onChange={e => setDeptForm({ ...deptForm, description: e.target.value })} placeholder="و مختصرة عن القسم..." />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">اسم الطبيب المسؤول</Label>
+                    <Input value={deptForm.doctorName} onChange={e => setDeptForm({ ...deptForm, doctorName: e.target.value })} placeholder="د. أحمد محمد" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">إيميل الطبيب (للتقويم) <span className="text-red-500">*</span></Label>
+                    <Input value={deptForm.doctorEmail} onChange={e => setDeptForm({ ...deptForm, doctorEmail: e.target.value })} placeholder="doctor@gmail.com" dir="ltr" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">هاتف الطبيب</Label>
+                    <Input value={deptForm.doctorPhone} onChange={e => setDeptForm({ ...deptForm, doctorPhone: e.target.value })} placeholder="07xxxxxxxx" dir="ltr" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">مدة الكشف (دقيقة)</Label>
+                    <Input type="number" min={5} max={120} value={deptForm.consultationDuration} onChange={e => setDeptForm({ ...deptForm, consultationDuration: Number(e.target.value) })} />
+                  </div>
+
+                  {/* Schedule section - each department has its own time slots */}
+                  <div className="md:col-span-2 bg-amber-50 p-4 rounded-xl border border-amber-200 mt-2">
+                    <p className="text-sm font-bold text-amber-800 mb-3">جدولة مواعيد القسم</p>
+                    <p className="text-xs text-amber-600 mb-3">
+                      كل قسم له جدول مواعيد خاص به. المركز يحدد المواعيد الأساسية وكل قسم يمكنه تعديلها.
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-amber-700">بداية الدوام <span className="text-red-500">*</span></Label>
+                        <Input value={deptForm.startTime} onChange={e => setDeptForm({ ...deptForm, startTime: e.target.value })} placeholder="08:00" dir="ltr" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-amber-700">نهاية الدوام <span className="text-red-500">*</span></Label>
+                        <Input value={deptForm.endTime} onChange={e => setDeptForm({ ...deptForm, endTime: e.target.value })} placeholder="22:00" dir="ltr" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs">أيام العمل</Label>
+                    <Input value={deptForm.workingDays} onChange={e => setDeptForm({ ...deptForm, workingDays: e.target.value })} placeholder="السبت - الخميس" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">سعر الكشف (دينار)</Label>
+                    <Input type="number" min={0} value={deptForm.price} onChange={e => setDeptForm({ ...deptForm, price: Number(e.target.value) })} />
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <Button variant="outline" onClick={() => setShowDeptForm(false)}>إلغاء</Button>
+                  <Button className="hover:opacity-90 gap-2" style={{ backgroundColor: '#5C7A6B' }} onClick={addDept} disabled={!deptForm.name || !deptForm.doctorEmail}>
+                    <Save className="w-4 h-4" /> إضافة القسم
+                  </Button>
+                </div>
+              </Card>
+            )}
+          </div>
+        )}
+
         {/* VISIBILITY TAB */}
         {tab === 'visibility' && (
           <div className="space-y-6">
@@ -890,4 +1085,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
