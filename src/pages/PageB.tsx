@@ -10,7 +10,7 @@ import {
   CalendarCheck, Clock, Stethoscope, Phone,
   MapPin, Printer, RotateCcw, CheckCircle2, AlertCircle,
   CalendarDays, Award, Star, Home, Building2,
-  Mail, ChevronLeft, Users
+  Mail, ChevronLeft, Users, Share2, ExternalLink
 } from 'lucide-react';
 
 export default function PageB() {
@@ -99,7 +99,7 @@ export default function PageB() {
               </Button>
               <Button variant="outline" onClick={() => navigate('/')} className="gap-2">
                 <ChevronLeft className="w-4 h-4" />
-                Link Express
+                <span style={{ color: '#2c3e50' }}>Link</span><span style={{ color: '#FF5722' }}>EX</span>
               </Button>
             </div>
           </Card>
@@ -327,11 +327,43 @@ export default function PageB() {
               </ul>
             </Card>
 
+            {/* رابط المركز وزر "هنا" */}
+            <Card className="p-5 border-2" style={{ borderColor: '#5C7A6B', backgroundColor: '#E4E8E0' }}>
+              <h3 className="font-bold text-center mb-3 flex items-center justify-center gap-2" style={{ color: '#2D2825' }}>
+                <ExternalLink className="w-5 h-5" style={{ color: '#5C7A6B' }} />
+                رابط صفحة المركز
+              </h3>
+              <p className="text-sm text-gray-600 text-center mb-3">
+                انسخ هذا الرابط وانشره على انستغرام، فيسبوك، تيك توك أو سناب شات
+              </p>
+              <div className="bg-white rounded-lg p-3 text-sm font-mono break-all text-center mb-3" dir="ltr" style={{ color: '#5C7A6B' }}>
+                {typeof window !== 'undefined' ? window.location.origin : ''}/center/{centerId}
+              </div>
+              <div className="flex flex-col gap-2">
+                <Button
+                  className="w-full gap-2 hover:opacity-90 text-white text-lg"
+                  style={{ backgroundColor: '#5C7A6B' }}
+                  onClick={() => {
+                    const url = `${window.location.origin}/center/${centerId}`;
+                    navigator.clipboard.writeText(url).then(() => {
+                      alert('تم نسخ رابط المركز! الصقه في منشورك على مواقع التواصل');
+                    });
+                  }}
+                >
+                  <span className="font-bold text-xl">هنا</span>
+                  <ExternalLink className="w-5 h-5" />
+                </Button>
+                <p className="text-xs text-gray-500 text-center">
+                  عندما ينقر المريض على "هنا" يصل مباشرة لصفحة المركز
+                </p>
+              </div>
+            </Card>
+
             <Card className="p-5 text-center">
               <p className="text-sm text-gray-500 mb-2">الرقم المرجعي</p>
               <div className="w-32 h-32 mx-auto bg-gray-100 rounded-xl flex items-center justify-center">
                 <div className="text-center">
-                  <div className="text-3xl font-bold text-teal-700 font-mono">
+                  <div className="text-3xl font-bold font-mono" style={{ color: '#5C7A6B' }}>
                     {bookingId?.slice(-6) || '000000'}
                   </div>
                   <p className="text-xs text-gray-400 mt-1">أحفظ هذا الرقم</p>
@@ -340,6 +372,42 @@ export default function PageB() {
             </Card>
           </div>
         </div>
+
+        {/* Share on Social Media */}
+        <Card className="p-6 mt-6 border-2" style={{ borderColor: '#5C7A6B' }}>
+          <h3 className="text-lg font-bold text-center mb-4 flex items-center justify-center gap-2" style={{ color: '#2D2825' }}>
+            <Share2 className="w-5 h-5" style={{ color: '#5C7A6B' }} />
+            شارك رابط الحجز مع مرضاك
+          </h3>
+          <p className="text-sm text-gray-500 text-center mb-4">
+            انسخ الرابط وانشره على انستغرام، واتساب، تيليجرام أو أي منصة تواصل
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <div className="flex-1 w-full sm:max-w-md">
+              <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600 font-mono break-all text-center" dir="ltr">
+                {typeof window !== 'undefined' ? window.location.origin : ''}/center/{centerId}/booking
+              </div>
+            </div>
+            <Button
+              className="gap-2 hover:opacity-90 text-white"
+              style={{ backgroundColor: '#5C7A6B' }}
+              onClick={() => {
+                const url = `${window.location.origin}/center/${centerId}/booking`;
+                navigator.clipboard.writeText(url).then(() => {
+                  alert('تم نسخ الرابط! الآن الصقه في منشورك على انستغرام');
+                });
+              }}
+            >
+              <span className="text-lg font-bold">هنا</span>
+              <Share2 className="w-4 h-4" />
+            </Button>
+          </div>
+          <div className="mt-4 text-center">
+            <p className="text-xs text-gray-400">
+              عندما ينقر المريض على "هنا" يصل مباشرة لصفحة الحجز
+            </p>
+          </div>
+        </Card>
 
         <div className="flex flex-col sm:flex-row gap-3 mt-8">
           <Button variant="outline" onClick={() => window.print()} className="gap-2">
@@ -352,7 +420,7 @@ export default function PageB() {
           </Button>
           <Button onClick={() => navigate('/')} className="bg-teal-600 hover:bg-teal-700 gap-2 flex-1">
             <Home className="w-4 h-4" />
-            Link Express
+            <span style={{ color: '#2c3e50' }}>Link</span><span style={{ color: '#FF5722' }}>EX</span>
           </Button>
         </div>
 
