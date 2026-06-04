@@ -131,9 +131,9 @@ export default function AdminDashboard() {
       <div className="w-full max-w-md px-6">
         <div className="text-center mb-8">
           <div className="mx-auto mb-5 text-center">
-  <img src="/assets/linex-logo.jpg" alt="Link Express" className="h-44 md:h-52 w-auto mx-auto object-contain drop-shadow-2xl" style={{ maxWidth: '90%' }} />
+  <img src="/assets/linex-logo-transparent.png" alt="LinkEX" className="h-44 md:h-52 w-auto mx-auto object-contain drop-shadow-2xl" style={{ maxWidth: '90%' }} />
 </div>
-          <h1 className="text-3xl font-bold text-white tracking-wide">Link Express</h1>
+          <h1 className="text-3xl font-bold tracking-wide"><span style={{ color: '#2c3e50' }}>Link</span><span style={{ color: '#FF5722' }}>EX</span></h1>
           <p className="text-slate-400 mt-2 text-sm">منصة إدارة المراكز الطبية والحجوزات الإلكترونية</p>
         </div>
         <Card className="p-6 border-0 shadow-2xl bg-white/95 backdrop-blur">
@@ -155,8 +155,8 @@ export default function AdminDashboard() {
       <header className="bg-white shadow-sm border-b sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src="/assets/linex-logo.jpg" alt="LinkEX" className="h-9 w-auto rounded bg-white px-1 py-0.5" />
-            <div><span className="font-bold text-gray-900">Link Express</span><span className="text-xs text-gray-500 block">لوحة التحكم العامة</span></div>
+            <img src="/assets/linex-logo-transparent.png" alt="LinkEX" className="h-9 w-auto rounded bg-white px-1 py-0.5" />
+            <div><span className="font-bold text-gray-900">Link</span><span className="font-bold" style={{ color: '#FF5722' }}>EX</span><span className="text-xs text-gray-500 block">لوحة التحكم العامة</span></div>
           </div>
           <div className="flex items-center gap-3">
             {msg && <span className="text-sm text-green-600 bg-green-50 px-3 py-1 rounded-lg flex items-center gap-1"><CheckCircle2 className="w-4 h-4" />{msg}</span>}
@@ -428,7 +428,7 @@ export default function AdminDashboard() {
               رسائل المدراء
             </h3>
             <p className="text-sm text-gray-500 mb-4" style={{ textAlign: 'center' }}>
-              اكتب رسالة تظهر لمدراء المراكز والعيادات في لوحات تحكمهم. تظهر أعلى الصفحة مع شعار Link Express.
+              اكتب رسالة تظهر لمدراء المراكز والعيادات في لوحات تحكمهم. تظهر أعلى الصفحة مع شعار LinkEX.
             </p>
             {/* Create New */}
             <Card className="p-4 mb-6 border-2 border-teal-200 bg-teal-50/30">
