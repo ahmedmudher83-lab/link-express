@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "link-express-iq",
     "public": "dist",
     "ignore": [
       "firebase.json",
