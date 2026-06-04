@@ -3,8 +3,8 @@ import { useNavigate, useParams } from 'react-router';
 import { useBooking } from '@/hooks/useBooking';
 import { useLinexData } from '@/hooks/useLinexData';
 import { isValidIraqiPhone } from '@/data/medicalData';
-import type { Doctor } from '@/types/linex';
 import type { BookingSlot, BookingData } from '@/types/booking';
+import type { Department } from '@/types/linex';
 import ProgressStepper from '@/components/ProgressStepper';
 import Guide from '@/components/Guide';
 import { Button } from '@/components/ui/button';
@@ -16,16 +16,19 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Badge } from '@/components/ui/badge';
 import {
   Stethoscope, ChevronLeft, Clock, CalendarDays,
-  Phone, Building2, Sun, Sunset, Moon, User, ArrowLeft
+  Phone, Building2, Sun, Sunset, Moon, User, ArrowLeft,
+  Hospital, Mail, CheckCircle2
 } from 'lucide-react';
 
-// Generate slots from a doctor's individual schedule
-function generateDoctorSlots(doctor: Doctor): BookingSlot[] {
+// Generate slots from department schedule
+function generateDeptSlots(dept: Department): BookingSlot[] {
   const slots: BookingSlot[] = [];
-  const start = doctor.startTime;
-  const end = doctor.endTime;
-  const duration = doctor.consultationDuration || 15;
-
+  const duration = dept.consultationDuration || 15;
+  
+  // Parse working hours
+  const start = dept.startTime || '08:00';
+  const end = dept.endTime || '22:00';
+  
   const [startH, startM] = start.split(':').map(Number);
   const [endH, endM] = end.split(':').map(Number);
 
@@ -40,11 +43,19 @@ function generateDoctorSlots(doctor: Doctor): BookingSlot[] {
   return slots;
 }
 
+// Simulated booked slots (in production this comes from Firebase/database)
+const getBookedSlots = (deptId: string, date: string): string[] => {
+  // For demo: 30% of slots appear booked
+  const stored = localStorage.getItem(`booked_${deptId}_${date}`);
+  if (stored) return JSON.parse(stored);
+  return [];
+};
+
 export default function PageA() {
   const navigate = useNavigate();
   const { centerId, deptId } = useParams<{ centerId?: string; deptId?: string }>();
   const { booking, setSpecialty, setDoctor, setDateTime, setPatient, generateBookingId } = useBooking();
-  const { getCenterById, getDepartmentById } = useLinexData();
+  const { getCenterById, getDepartmentById, getDepartmentsByCenter } = useLinexData();
 
   const [step, setStep] = useState(0);
   const [selectedDate, setSelectedDate] = useState('');
@@ -60,56 +71,17 @@ export default function PageA() {
   const dept = deptId ? getDepartmentById(deptId) : null;
   const pageTitle = center?.name || dept?.name || 'حجز موعد طبي';
 
-  // Get real doctors from center or department
-  const realDoctors: Doctor[] = useMemo(() => {
-    if (centerId && center) {
-      return center.doctors.filter(d => d.isActive);
-    }
-    if (deptId && dept) {
-      // Department has a single doctor
-      return [{
-        id: dept.id,
-        name: dept.doctorName || dept.name,
-        specialty: dept.name,
-        title: 'أخصائي',
-        email: dept.doctorEmail,
-        phone: dept.doctorPhone || '',
-        bio: dept.description,
-        image: dept.logo || '',
-        consultationDuration: dept.consultationDuration || 15,
-        startTime: '09:00',
-        endTime: '14:00',
-        daysOff: ['الجمعة'],
-        isActive: true,
-      }];
-    }
-    return [];
-  }, [center, dept, centerId, deptId]);
+  // Get departments for this center
+  const centerDepts = useMemo(() => {
+    if (!centerId) return dept ? [dept] : [];
+    return getDepartmentsByCenter(centerId).filter(d => d.isActive);
+  }, [centerId, dept, getDepartmentsByCenter]);
 
-  // Get unique specialties from real doctors
-  const availableSpecialties = useMemo(() => {
-    const map = new Map<string, { id: string; name: string; icon: string; description: string; doctors: Doctor[] }>();
-    realDoctors.forEach(doc => {
-      if (map.has(doc.specialty)) {
-        map.get(doc.specialty)!.doctors.push(doc);
-      } else {
-        map.set(doc.specialty, {
-          id: doc.specialty,
-          name: doc.specialty,
-          icon: 'Stethoscope',
-          description: `${doc.specialty}`,
-          doctors: [doc],
-        });
-      }
-    });
-    return Array.from(map.values());
-  }, [realDoctors]);
-
-  // Selected specialty doctors
-  const specialtyDoctors = useMemo(() => {
-    if (!booking.specialty) return [];
-    return realDoctors.filter(d => d.specialty === booking.specialty!.name);
-  }, [booking.specialty, realDoctors]);
+  // Selected department
+  const selectedDept = useMemo(() => {
+    if (!booking.specialty) return null;
+    return centerDepts.find(d => d.id === booking.specialty?.id) || null;
+  }, [booking.specialty, centerDepts]);
 
   const upcomingDays = Array.from({ length: 7 }, (_, i) => {
     const date = new Date();
@@ -120,43 +92,52 @@ export default function PageA() {
     return { dayName, dateStr, fullDate: date.toISOString().split('T')[0], disabled: false };
   });
 
-  const handleSpecialtySelect = (spec: typeof availableSpecialties[0]) => {
-    setSpecialty({ id: spec.id, name: spec.name, icon: spec.icon, description: spec.description, doctorEmail: '' });
+  // Step 0: Select department
+  const handleDeptSelect = (dept: Department) => {
+    setSpecialty({
+      id: dept.id,
+      name: dept.name,
+      icon: 'Stethoscope',
+      description: dept.description || '',
+      doctorEmail: dept.doctorEmail || ''
+    });
     setStep(1);
   };
 
-  const handleDoctorSelect = (doc: Doctor) => {
-    // Map Doctor to booking doctor format
+  // Step 1: Show department doctor and proceed to booking
+  const handleDeptDoctorSelect = () => {
+    if (!selectedDept) return;
+    
+    // Create a doctor object from department data
     const bookingDoctor: BookingData['doctor'] = {
-      id: doc.id,
-      name: doc.name,
-      title: doc.title,
-      specialtyId: doc.specialty,
+      id: selectedDept.id,
+      name: selectedDept.doctorName || selectedDept.name,
+      title: 'أخصائي',
+      specialtyId: selectedDept.name,
       experience: 0,
       rating: 5,
-      about: doc.bio,
-      image: doc.image || '/assets/linex-logo.jpg',
+      about: selectedDept.description,
+      image: selectedDept.logo || '/assets/linex-logo-transparent.png',
       schedule: {
-        startTime: doc.startTime,
-        endTime: doc.endTime,
-        slotDuration: doc.consultationDuration,
-        daysOff: doc.daysOff,
+        startTime: selectedDept.startTime || '08:00',
+        endTime: selectedDept.endTime || '22:00',
+        slotDuration: selectedDept.consultationDuration || 15,
+        daysOff: selectedDept.daysOff || ['الجمعة'],
       },
     };
     setDoctor(bookingDoctor);
     setStep(2);
   };
 
+  // Step 2: Select date
   const handleDateSelect = (date: string) => {
     setSelectedDate(date);
-    if (booking.doctor) {
-      const generatedSlots = generateDoctorSlots({
-        startTime: booking.doctor.schedule.startTime,
-        endTime: booking.doctor.schedule.endTime,
-        consultationDuration: booking.doctor.schedule.slotDuration,
-        daysOff: booking.doctor.schedule.daysOff,
-      } as Doctor);
-      setSlots(generatedSlots);
+    if (selectedDept) {
+      const generatedSlots = generateDeptSlots(selectedDept);
+      // Remove booked slots
+      const booked = getBookedSlots(selectedDept.id, date);
+      const availableSlots = generatedSlots.filter(s => !booked.includes(s.time));
+      setSlots(availableSlots);
     }
   };
 
@@ -172,6 +153,7 @@ export default function PageA() {
     }
   };
 
+  // ... (keep remaining functions: validatePatientForm, handlePatientSubmit, handleConfirm)
   const validatePatientForm = () => {
     const newErrors: Record<string, string> = {};
     if (!patientForm.fullName.trim()) newErrors.fullName = 'الاسم الكامل مطلوب';
@@ -193,6 +175,13 @@ export default function PageA() {
   };
 
   const handleConfirm = () => {
+    // Save booked slot
+    if (selectedDept && selectedDate && selectedTime) {
+      const key = `booked_${selectedDept.id}_${selectedDate}`;
+      const existing = JSON.parse(localStorage.getItem(key) || '[]');
+      localStorage.setItem(key, JSON.stringify([...existing, selectedTime]));
+    }
+    
     const bookingId = generateBookingId();
     if (centerId) navigate(`/center/${centerId}`, { state: { bookingId } });
     else navigate('/');
@@ -204,35 +193,30 @@ export default function PageA() {
   const eveningSlots = slots.filter(s => s.period === 'evening');
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen" style={{ backgroundColor: '#F8F6F0' }}>
       {/* Header */}
-      <div className="bg-gradient-to-br from-teal-700 via-teal-600 to-teal-800 text-white py-12">
+      <div className="text-white py-12" style={{ background: 'linear-gradient(135deg, #3D3632 0%, #5C534D 40%, #7A8B7F 100%)' }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3 mb-3">
-            {centerId && <button onClick={() => navigate(`/center/${centerId}`)} className="text-teal-200 hover:text-white transition-colors"><Building2 className="w-6 h-6" /></button>}
+            {centerId && <button onClick={() => navigate(`/center/${centerId}`)} className="transition-colors" style={{ color: '#C8DDD0' }}><Building2 className="w-6 h-6" /></button>}
             <h1 className="text-3xl md:text-4xl font-bold">{pageTitle}</h1>
           </div>
-          <p className="text-teal-100 text-lg max-w-2xl">اختر التخصص والطبيب والموعد المناسب لك، واملأ بياناتك للحصول على موعد مؤكد.</p>
-          {center && <div className="flex items-center gap-4 mt-3 text-sm text-teal-200"><span className="flex items-center gap-1"><Phone className="w-3 h-3" /> {center.phone}</span><span>{center.address}</span></div>}
-          <div className="mt-4">
-            <button onClick={() => setShowGuide(true)} className="text-teal-200 hover:text-white text-sm flex items-center gap-1 transition-colors">
-              <span className="bg-white/20 px-3 py-1 rounded-full">كيف تحجز موعدك؟ دليل سريع</span>
-            </button>
-          </div>
+          <p className="text-lg max-w-2xl" style={{ color: '#D4CFC9' }}>اختر القسم المناسب ثم حدد موعدك</p>
+          {center && <div className="flex items-center gap-4 mt-3 text-sm" style={{ color: '#C8DDD0' }}><span className="flex items-center gap-1"><Phone className="w-3 h-3" /> {center.phone}</span><span>{center.address}</span></div>}
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-6">
         <Card className="p-4 shadow-lg border-0"><ProgressStepper currentStep={step} /></Card>
 
-        {/* Step 0: Specialties - ONLY show specialties that have doctors */}
+        {/* Step 0: Departments */}
         {step === 0 && (
           <div className="mt-6 pb-12">
-            {realDoctors.length === 0 ? (
+            {centerDepts.length === 0 ? (
               <Card className="p-12 text-center">
-                <Stethoscope className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <h2 className="text-xl font-bold text-gray-900 mb-2">لا يوجد أطباء مسجلين</h2>
-                <p className="text-gray-500 mb-4">لم يقم مدير المركز بإضافة أطباء بعد.</p>
+                <Hospital className="w-16 h-16 mx-auto mb-4" style={{ color: '#C4BFB9' }} />
+                <h2 className="text-xl font-bold text-gray-900 mb-2">لا يوجد أقسام مسجلة</h2>
+                <p className="text-gray-500 mb-4">لم يقم مدير المركز بإضافة أقسام طبية بعد.</p>
                 <Button onClick={() => centerId ? navigate(`/center/${centerId}`) : navigate('/')} variant="outline" className="gap-2">
                   <ArrowLeft className="w-4 h-4" /> رجوع
                 </Button>
@@ -240,17 +224,30 @@ export default function PageA() {
             ) : (
               <>
                 <div className="text-center mb-8">
-                  <h2 className="text-2xl font-bold text-gray-900 mb-2">اختر التخصص</h2>
-                  <p className="text-gray-500">التخصصات المتوفرة في {pageTitle}</p>
+                  <div className="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-4" style={{ backgroundColor: '#E4E8E0' }}>
+                    <Hospital className="w-8 h-8" style={{ color: '#5C7A6B' }} />
+                  </div>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-2">اختر القسم الطبي</h2>
+                  <p className="text-gray-500">الأقسام المتاحة في {pageTitle}</p>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                  {availableSpecialties.map(spec => (
-                    <Card key={spec.id} className="p-4 cursor-pointer hover:shadow-xl hover:border-teal-300 transition-all group text-center border-2 border-transparent" onClick={() => handleSpecialtySelect(spec)}>
-                      <div className="w-14 h-14 mx-auto bg-teal-50 rounded-2xl flex items-center justify-center mb-3 group-hover:bg-teal-100">
-                        <Stethoscope className="w-7 h-7 text-teal-600" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                  {centerDepts.map(dept => (
+                    <Card key={dept.id} className="p-5 cursor-pointer hover:shadow-xl transition-all border-2 border-transparent text-right"
+                      style={{ borderColor: 'transparent' }}
+                      onClick={() => handleDeptSelect(dept)}
+                      onMouseEnter={e => (e.currentTarget.style.borderColor = '#5C7A6B')}
+                      onMouseLeave={e => (e.currentTarget.style.borderColor = 'transparent')}>
+                      <div className="flex items-center gap-4">
+                        <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0" style={{ backgroundColor: '#E4E8E0' }}>
+                          <Stethoscope className="w-7 h-7" style={{ color: '#5C7A6B' }} />
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="font-bold text-gray-900">{dept.name}</h3>
+                          {dept.description && <p className="text-sm text-gray-500 mt-1">{dept.description}</p>}
+                          {dept.doctorName && <p className="text-sm mt-1" style={{ color: '#5C7A6B' }}>د. {dept.doctorName}</p>}
+                          {dept.workingHours && <p className="text-xs text-gray-400 mt-1">{dept.workingDays} | {dept.workingHours}</p>}
+                        </div>
                       </div>
-                      <h3 className="font-semibold text-gray-900 text-sm">{spec.name}</h3>
-                      <p className="text-xs text-gray-400 mt-1">{spec.doctors.length} طبيب</p>
                     </Card>
                   ))}
                 </div>
@@ -259,43 +256,61 @@ export default function PageA() {
           </div>
         )}
 
-        {/* Step 1: Real Doctors from center */}
-        {step === 1 && booking.specialty && (
+        {/* Step 1: Department Doctor */}
+        {step === 1 && selectedDept && (
           <div className="mt-6 pb-12">
             <div className="flex items-center gap-4 mb-6">
               <Button variant="outline" size="sm" onClick={() => setStep(0)} className="gap-1"><ArrowLeft className="w-4 h-4" />عودة</Button>
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">أطباء {booking.specialty.name}</h2>
-                <p className="text-gray-500 text-sm">اختر الطبيب المناسب - كل طبيب له مواعيد ومدة كشف منفصلة</p>
+                <h2 className="text-2xl font-bold text-gray-900">{selectedDept.name}</h2>
+                <p className="text-gray-500 text-sm">معلومات القسم والطبيب المسؤول</p>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {specialtyDoctors.map(doc => (
-                <Card key={doc.id} className="p-5 cursor-pointer hover:shadow-xl hover:border-teal-300 transition-all group border-2 border-transparent" onClick={() => handleDoctorSelect(doc)}>
-                  <div className="flex gap-4">
-                    <div className="w-20 h-20 rounded-2xl bg-teal-100 flex items-center justify-center shrink-0 overflow-hidden">
-                      {doc.image ? <img src={doc.image} alt={doc.name} className="w-full h-full object-cover" /> : <User className="w-10 h-10 text-teal-600" />}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-1">
-                        <h3 className="font-bold text-gray-900">{doc.name}</h3>
-                        <Badge variant="secondary" className="text-xs">{doc.title}</Badge>
-                      </div>
-                      <Badge className="mb-2 text-xs bg-teal-50 text-teal-700 border-teal-200">{doc.specialty}</Badge>
-                      <div className="flex items-center gap-3 text-xs text-gray-500">
-                        <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{doc.startTime} - {doc.endTime}</span>
-                      </div>
-                    </div>
+
+            <Card className="p-6 max-w-2xl mx-auto border-2" style={{ borderColor: '#D4CFC9' }}>
+              <div className="flex items-start gap-4">
+                <div className="w-16 h-16 rounded-2xl flex items-center justify-center shrink-0" style={{ backgroundColor: '#E4E8E0' }}>
+                  <Stethoscope className="w-8 h-8" style={{ color: '#5C7A6B' }} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-xl font-bold text-gray-900">{selectedDept.name}</h3>
+                  {selectedDept.description && <p className="text-gray-600 mt-1">{selectedDept.description}</p>}
+                  
+                  <div className="mt-4 p-4 rounded-xl" style={{ backgroundColor: '#F0EDE6' }}>
+                    <p className="text-sm font-bold text-gray-700 mb-2">الطبيب المسؤول:</p>
+                    <p className="text-lg font-bold" style={{ color: '#5C7A6B' }}>{selectedDept.doctorName || 'غير محدد'}</p>
+                    {selectedDept.doctorEmail && (
+                      <p className="text-sm text-gray-500 flex items-center gap-1 mt-1" dir="ltr">
+                        <Mail className="w-4 h-4" />{selectedDept.doctorEmail}
+                      </p>
+                    )}
+                    {selectedDept.doctorPhone && (
+                      <p className="text-sm text-gray-500 flex items-center gap-1 mt-1" dir="ltr">
+                        <Phone className="w-4 h-4" />{selectedDept.doctorPhone}
+                      </p>
+                    )}
                   </div>
-                  {doc.bio && <p className="text-sm text-gray-600 mt-2 line-clamp-2">{doc.bio}</p>}
-                  <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-3 text-xs text-gray-500">
-                    <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-teal-500" />كشف {doc.consultationDuration} دقيقة</span>
-                    <span className="bg-teal-50 text-teal-700 px-2 py-0.5 rounded-full">{Math.floor((parseInt(doc.endTime) - parseInt(doc.startTime)) * 60 / doc.consultationDuration)} حالة/يوم</span>
-                    {doc.daysOff.length > 0 && <span className="text-amber-600">عطلة: {doc.daysOff.join('، ')}</span>}
+
+                  <div className="mt-4 flex flex-wrap gap-2 text-sm text-gray-500">
+                    <Badge variant="outline">{selectedDept.workingDays}</Badge>
+                    <Badge variant="outline">{selectedDept.workingHours}</Badge>
+                    <Badge variant="outline">كشف {selectedDept.consultationDuration || 15} دقيقة</Badge>
                   </div>
-                </Card>
-              ))}
-            </div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <Button 
+                  onClick={handleDeptDoctorSelect}
+                  className="gap-2 hover:opacity-90"
+                  style={{ backgroundColor: '#5C7A6B' }}
+                  disabled={!selectedDept.doctorName}
+                >
+                  حجز موعد مع {selectedDept.doctorName || 'الطبيب'}
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+              </div>
+            </Card>
           </div>
         )}
 
@@ -310,23 +325,24 @@ export default function PageA() {
               </div>
             </div>
 
-            <Card className="p-4 mb-4 bg-gradient-to-r from-teal-50 to-blue-50 border-teal-200">
+            <Card className="p-4 mb-4" style={{ background: 'linear-gradient(135deg, #E4E8E0 0%, #D4CFC9 100%)', borderColor: '#5C7A6B' }}>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
                 <div><p className="text-xs text-gray-500">وقت الدوام</p><p className="font-bold text-gray-900">{booking.doctor.schedule.startTime} - {booking.doctor.schedule.endTime}</p></div>
-                <div><p className="text-xs text-gray-500">مدة الكشف</p><p className="font-bold text-teal-700">{booking.doctor.schedule.slotDuration} دقيقة</p></div>
-                <div><p className="text-xs text-gray-500">السعة اليومية</p><p className="font-bold text-blue-700">{Math.floor((parseInt(booking.doctor.schedule.endTime) - parseInt(booking.doctor.schedule.startTime)) * 60 / booking.doctor.schedule.slotDuration)} حالة</p></div>
+                <div><p className="text-xs text-gray-500">مدة الكشف</p><p className="font-bold" style={{ color: '#5C7A6B' }}>{booking.doctor.schedule.slotDuration} دقيقة</p></div>
+                <div><p className="text-xs text-gray-500">السعة اليومية</p><p className="font-bold" style={{ color: '#5C7A6B' }}>{Math.floor((parseInt(booking.doctor.schedule.endTime) - parseInt(booking.doctor.schedule.startTime)) * 60 / booking.doctor.schedule.slotDuration)} حالة</p></div>
               </div>
             </Card>
 
             <Card className="p-6 mb-4">
-              <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2"><CalendarDays className="w-5 h-5 text-teal-600" />اختر اليوم</h3>
+              <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2"><CalendarDays className="w-5 h-5" style={{ color: '#5C7A6B' }} />اختر اليوم</h3>
               <div className="grid grid-cols-4 sm:grid-cols-7 gap-3">
                 {upcomingDays.map(day => {
-                  const isOff = booking.doctor?.schedule.daysOff.includes(day.dayName);
+                  const isOff = booking.doctor?.schedule.daysOff?.includes(day.dayName);
                   const isSelected = selectedDate === day.fullDate;
                   return (
                     <button key={day.fullDate} disabled={isOff} onClick={() => handleDateSelect(day.fullDate)}
-                      className={`p-3 rounded-xl text-center transition-all ${isSelected ? 'bg-teal-600 text-white shadow-lg' : isOff ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white border-2 border-gray-200 hover:border-teal-300'}`}>
+                      className={`p-3 rounded-xl text-center transition-all ${isSelected ? 'text-white shadow-lg' : isOff ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white border-2 border-gray-200'}`}
+                      style={isSelected ? { backgroundColor: '#5C7A6B' } : {}}>
                       <div className="text-xs font-medium">{day.dayName}</div>
                       <div className="text-sm font-bold mt-1">{day.dateStr}</div>
                       {isOff && <div className="text-[10px] mt-1">عطلة</div>}
@@ -338,51 +354,69 @@ export default function PageA() {
 
             {selectedDate && slots.length > 0 && (
               <Card className="p-6 mb-4">
-                <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2"><Clock className="w-5 h-5 text-teal-600" />اختر وقت الحجز</h3>
-                {morningSlots.length > 0 && (
-                  <div className="mb-4">
-                    <h4 className="text-sm font-semibold text-amber-600 mb-2 flex items-center gap-1"><Sun className="w-4 h-4" />فترة الصباح</h4>
-                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                      {morningSlots.map(slot => (
-                        <button key={slot.time} onClick={() => handleTimeSelect(slot.time)}
-                          className={`p-2 rounded-lg text-center text-sm transition-all ${selectedTime === slot.time ? 'bg-teal-600 text-white' : 'bg-white border border-gray-200 hover:border-teal-300'}`}>
-                          {slot.time}
-                        </button>
-                      ))}
-                    </div>
+                <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2"><Clock className="w-5 h-5" style={{ color: '#5C7A6B' }} />اختر وقت الحجز</h3>
+                {slots.length === 0 ? (
+                  <div className="text-center p-8">
+                    <p className="text-gray-500">لا توجد مواعيد متاحة لهذا اليوم</p>
+                    <p className="text-sm text-gray-400 mt-1">جميع المواعيد محجوزة</p>
                   </div>
-                )}
-                {afternoonSlots.length > 0 && (
-                  <div className="mb-4">
-                    <h4 className="text-sm font-semibold text-orange-600 mb-2 flex items-center gap-1"><Sunset className="w-4 h-4" />فترة الظهر</h4>
-                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                      {afternoonSlots.map(slot => (
-                        <button key={slot.time} onClick={() => handleTimeSelect(slot.time)}
-                          className={`p-2 rounded-lg text-center text-sm transition-all ${selectedTime === slot.time ? 'bg-teal-600 text-white' : 'bg-white border border-gray-200 hover:border-teal-300'}`}>
-                          {slot.time}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {eveningSlots.length > 0 && (
-                  <div className="mb-4">
-                    <h4 className="text-sm font-semibold text-indigo-600 mb-2 flex items-center gap-1"><Moon className="w-4 h-4" />فترة المساء</h4>
-                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                      {eveningSlots.map(slot => (
-                        <button key={slot.time} onClick={() => handleTimeSelect(slot.time)}
-                          className={`p-2 rounded-lg text-center text-sm transition-all ${selectedTime === slot.time ? 'bg-teal-600 text-white' : 'bg-white border border-gray-200 hover:border-teal-300'}`}>
-                          {slot.time}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                ) : (
+                  <>
+                    {morningSlots.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="text-sm font-semibold mb-2 flex items-center gap-1" style={{ color: '#8B6914' }}><Sun className="w-4 h-4" />فترة الصباح</h4>
+                        <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                          {morningSlots.map(slot => (
+                            <button key={slot.time} onClick={() => handleTimeSelect(slot.time)}
+                              className={`p-2 rounded-lg text-center text-sm transition-all ${selectedTime === slot.time ? 'text-white' : 'bg-white border border-gray-200'}`}
+                              style={selectedTime === slot.time ? { backgroundColor: '#5C7A6B' } : {}}>
+                              {slot.time}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {afternoonSlots.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="text-sm font-semibold mb-2 flex items-center gap-1" style={{ color: '#9A3412' }}><Sunset className="w-4 h-4" />فترة الظهر</h4>
+                        <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                          {afternoonSlots.map(slot => (
+                            <button key={slot.time} onClick={() => handleTimeSelect(slot.time)}
+                              className={`p-2 rounded-lg text-center text-sm transition-all ${selectedTime === slot.time ? 'text-white' : 'bg-white border border-gray-200'}`}
+                              style={selectedTime === slot.time ? { backgroundColor: '#5C7A6B' } : {}}>
+                              {slot.time}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {eveningSlots.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="text-sm font-semibold mb-2 flex items-center gap-1" style={{ color: '#3730A3' }}><Moon className="w-4 h-4" />فترة المساء</h4>
+                        <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                          {eveningSlots.map(slot => (
+                            <button key={slot.time} onClick={() => handleTimeSelect(slot.time)}
+                              className={`p-2 rounded-lg text-center text-sm transition-all ${selectedTime === slot.time ? 'text-white' : 'bg-white border border-gray-200'}`}
+                              style={selectedTime === slot.time ? { backgroundColor: '#5C7A6B' } : {}}>
+                              {slot.time}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
                 <p className="text-xs text-gray-400 mt-2">مدة كل كشف: {booking.doctor.schedule.slotDuration} دقيقة</p>
               </Card>
             )}
+            {selectedDate && slots.length === 0 && (
+              <Card className="p-8 text-center mb-4">
+                <p className="text-gray-500 text-lg">لا توجد مواعيد متاحة لهذا اليوم</p>
+                <p className="text-sm text-gray-400 mt-1">جميع المواعيد محجوزة. يرجى اختيار يوم آخر.</p>
+              </Card>
+            )}
             <div className="flex justify-start">
-              <Button onClick={handleDateTimeConfirm} disabled={!selectedDate || !selectedTime} className="bg-teal-600 hover:bg-teal-700 gap-2">التالي<ChevronLeft className="w-4 h-4" /></Button>
+              <Button onClick={handleDateTimeConfirm} disabled={!selectedDate || !selectedTime} className="gap-2 hover:opacity-90" style={{ backgroundColor: '#5C7A6B' }}>التالي<ChevronLeft className="w-4 h-4" /></Button>
             </div>
           </div>
         )}
@@ -427,7 +461,7 @@ export default function PageA() {
                 <Textarea value={patientForm.notes} onChange={e => setPatientForm({ ...patientForm, notes: e.target.value })} placeholder="أي ملاحظات للطبيب..." rows={3} />
               </div>
               <div className="mt-6 flex justify-start">
-                <Button onClick={handlePatientSubmit} className="bg-teal-600 hover:bg-teal-700 gap-2">التالي<ChevronLeft className="w-4 h-4" /></Button>
+                <Button onClick={handlePatientSubmit} className="gap-2 hover:opacity-90" style={{ backgroundColor: '#5C7A6B' }}>التالي<ChevronLeft className="w-4 h-4" /></Button>
               </div>
             </Card>
           </div>
@@ -440,23 +474,68 @@ export default function PageA() {
               <h2 className="text-2xl font-bold text-gray-900 mb-2">ملخص الحجز</h2>
               <p className="text-gray-500">راجع بيانات حجزك قبل التأكيد</p>
             </div>
-            <Card className="p-6 max-w-2xl mx-auto border-2 border-teal-100">
-              <div className="bg-teal-50 rounded-xl p-4 mb-6 text-center">
-                <div className="w-16 h-16 bg-teal-600 text-white rounded-full flex items-center justify-center mx-auto mb-3"><CalendarDays className="w-8 h-8" /></div>
-                <h3 className="text-lg font-bold text-teal-900">تأكيد موعدك</h3>
+            <Card className="p-6 max-w-2xl mx-auto border-2" style={{ borderColor: '#D4CFC9' }}>
+              <div className="rounded-xl p-4 mb-6 text-center" style={{ backgroundColor: '#E4E8E0' }}>
+                <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: '#5C7A6B' }}>
+                  <CalendarDays className="w-8 h-8 text-white" />
+                </div>
+                <h3 className="text-lg font-bold" style={{ color: '#2D2825' }}>تأكيد موعدك</h3>
               </div>
               <div className="space-y-3">
-                <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-500">التخصص</span><span className="font-semibold">{booking.specialty?.name}</span></div>
-                <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-500">الطبيب</span><span className="font-semibold">{booking.doctor?.name} ({booking.doctor?.title})</span></div>
+                <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-500">القسم</span><span className="font-semibold">{booking.specialty?.name}</span></div>
+                <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-500">الطبيب</span><span className="font-semibold">{booking.doctor?.name}</span></div>
                 <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-500">التاريخ</span><span className="font-semibold">{booking.date}</span></div>
                 <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-500">الوقت</span><span className="font-semibold">{booking.time}</span></div>
-                <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-500">مدة الكشف</span><span className="font-semibold text-teal-600">{booking.doctor?.schedule.slotDuration} دقيقة</span></div>
+                <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-500">مدة الكشف</span><span className="font-semibold" style={{ color: '#5C7A6B' }}>{booking.doctor?.schedule.slotDuration} دقيقة</span></div>
                 <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-500">المريض</span><span className="font-semibold">{booking.patient?.fullName}</span></div>
                 <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-500">الموبايل</span><span className="font-semibold" dir="ltr">{booking.patient?.phone}</span></div>
+                {booking.patient?.email && (
+                  <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-500">البريد</span><span className="font-semibold" dir="ltr">{booking.patient?.email}</span></div>
+                )}
               </div>
-              <div className="flex flex-col sm:flex-row gap-3 mt-8">
+
+              {/* Google Calendar + Email Actions */}
+              <div className="mt-6 space-y-3">
+                <p className="text-sm text-gray-500 text-center">بعد التأكيد، يمكنك:</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => {
+                      const title = encodeURIComponent(`موعد طبي - ${booking.specialty?.name} - ${booking.doctor?.name}`);
+                      const details = encodeURIComponent(`مركز: ${pageTitle}\nمريض: ${booking.patient?.fullName}\nهاتف: ${booking.patient?.phone}`);
+                      const location = encodeURIComponent(center?.address || '');
+                      // Add doctor email to recipients if available
+                      const docEmail = selectedDept?.doctorEmail || '';
+                      const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&location=${location}&add=${docEmail}`;
+                      window.open(url, '_blank');
+                    }}
+                  >
+                    <CalendarDays className="w-4 h-4" />
+                    إضافة لتقويم Google
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => {
+                      const subject = encodeURIComponent(`تأكيد حجز موعد - ${booking.patient?.fullName}`);
+                      const body = encodeURIComponent(`تم حجز موعد جديد:\n\nالقسم: ${booking.specialty?.name}\nالطبيب: ${booking.doctor?.name}\nالتاريخ: ${booking.date}\nالوقت: ${booking.time}\nالمريض: ${booking.patient?.fullName}\nالهاتف: ${booking.patient?.phone}`);
+                      const docEmail = selectedDept?.doctorEmail || '';
+                      window.open(`mailto:${docEmail}?subject=${subject}&body=${body}`, '_blank');
+                    }}
+                  >
+                    <Mail className="w-4 h-4" />
+                    إرسال إشعار للطبيب
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 mt-6">
                 <Button variant="outline" onClick={() => setStep(3)} className="gap-2">تعديل البيانات</Button>
-                <Button onClick={handleConfirm} className="bg-teal-600 hover:bg-teal-700 gap-2 flex-1">تأكيد الحجز</Button>
+                <Button onClick={handleConfirm} className="gap-2 flex-1 hover:opacity-90" style={{ backgroundColor: '#5C7A6B' }}>
+                  <CheckCircle2 className="w-4 h-4" />
+                  تأكيد الحجز
+                </Button>
               </div>
             </Card>
           </div>
