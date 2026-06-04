@@ -17,7 +17,7 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<Admin | null>;
   logout: () => Promise<void>;
   getAllAdmins: () => Admin[];
-  addAdmin: (admin: Admin) => void;
+  addAdmin: (admin: Admin) => string | null;
   updateAdmin: (admin: Admin) => void;
   getAdminsByRole: (role: Admin['role']) => Admin[];
   getAdminById: (id: string) => Admin | undefined;
@@ -51,11 +51,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const init = async () => {
       try {
-        let loadedAdmins = await fetchAllAdmins();
-        if (loadedAdmins.length === 0) {
-          await saveAdminToFirebase(DEFAULT_SUPER_ADMIN);
-          loadedAdmins = [DEFAULT_SUPER_ADMIN];
+        // Try localStorage first, then Firebase
+        let localAdmins: Admin[] = [];
+        try {
+          const stored = localStorage.getItem('linex_admins');
+          if (stored) localAdmins = JSON.parse(stored);
+        } catch { /* ignore */ }
+
+        let loadedAdmins = localAdmins.length > 0 ? localAdmins : await fetchAllAdmins();
+
+        // Always ensure super admin exists
+        if (!loadedAdmins.find(a => a.username === 'admin')) {
+          loadedAdmins = [DEFAULT_SUPER_ADMIN, ...loadedAdmins];
+          localStorage.setItem('linex_admins', JSON.stringify(loadedAdmins));
         }
+
         if (mounted) {
           setAdmins(loadedAdmins);
         }
@@ -70,6 +80,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         return () => { unsub(); };
       } catch {
+        // Fallback: use localStorage or default
+        const stored = localStorage.getItem('linex_admins');
+        if (stored) {
+          try { setAdmins(JSON.parse(stored)); } catch { setAdmins([DEFAULT_SUPER_ADMIN]); }
+        } else {
+          setAdmins([DEFAULT_SUPER_ADMIN]);
+        }
         if (mounted) setLoading(false);
       }
     };
@@ -80,10 +97,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (username: string, password: string): Promise<Admin | null> => {
+    // First check localStorage
+    const stored = localStorage.getItem('linex_admins');
+    if (stored) {
+      try {
+        const localAdmins: Admin[] = JSON.parse(stored);
+        const found = localAdmins.find(a => a.username === username && a.password === password && a.isActive !== false);
+        if (found) {
+          setAuth({ isAuthenticated: true, admin: found });
+          return found;
+        }
+      } catch { /* ignore */ }
+    }
+    // Fallback to Firebase
     const result = await adminLogin(username, password);
     if (result.success && result.admin) {
       setAuth({ isAuthenticated: true, admin: result.admin });
-      // Refresh admins cache
       const all = await fetchAllAdmins();
       setAdmins(all);
       return result.admin;
@@ -99,7 +128,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Synchronous reads from local state
   const getAllAdmins = useCallback((): Admin[] => admins, [admins]);
 
-  const addAdmin = useCallback((admin: Admin): void => {
+  const addAdmin = useCallback((admin: Admin): string | null => {
+    // Check for duplicate username
+    const existing = admins.find(a => a.username === admin.username && a.id !== admin.id);
+    if (existing) {
+      return 'اسم المستخدم "' + admin.username + '" مستخدم مسبقاً. يرجى اختيار اسم آخر.';
+    }
     // Save to Firebase in background
     saveAdminToFirebase(admin).then(() => {
       // Refresh from Firebase to stay in sync
@@ -115,7 +149,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return [...prev, admin];
     });
-  }, []);
+    return null;
+  }, [admins]);
 
   const updateAdmin = useCallback((admin: Admin): void => {
     saveAdminToFirebase(admin).then(() => {
