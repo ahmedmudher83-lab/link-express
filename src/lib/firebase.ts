@@ -1,9 +1,9 @@
-// ======== Link Express Configuration ========
+// ======== LinkEX Configuration ========
 // Domain: nidaba.org
 // Firebase Project: link-express-iq
 
 export const DOMAIN = 'linkexpress.nidaba.org';
-export const APP_NAME = 'Link Express';
+export const APP_NAME = 'LinkEX';
 export const APP_SHORT = 'LinkEX';
 export const COMPANY = 'Nidaba';
 
