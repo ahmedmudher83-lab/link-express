@@ -40,8 +40,8 @@ export default function LoginPage() {
 
         {/* Logo */}
         <div className="text-center mb-8">
-          <img src="/assets/linex-logo.jpg" alt="Link Express" className="h-44 md:h-52 w-auto mx-auto object-contain drop-shadow-2xl mb-4" style={{ maxWidth: '90%' }} />
-          <h1 className="text-3xl font-bold text-white tracking-wide">Link Express</h1>
+          <img src="/assets/linex-logo-transparent.png" alt="LinkEX" className="h-44 md:h-52 w-auto mx-auto object-contain drop-shadow-2xl mb-4" style={{ maxWidth: '90%' }} />
+          <h1 className="text-3xl font-bold tracking-wide"><span style={{ color: '#2c3e50' }}>Link</span><span style={{ color: '#FF5722' }}>EX</span></h1>
           <p className="text-slate-400 mt-2 text-sm">تسجيل دخول مدير المركز أو العيادة</p>
         </div>
 
