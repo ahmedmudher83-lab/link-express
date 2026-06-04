@@ -85,11 +85,14 @@ export interface Department {
   doctorEmail: string;
   doctorPhone: string;
   logo: string; // رابط الشعار أو base64
-  // جدولة المواعيد
+  // جدولة المواعيد - المركز يحدد المواعيد الأساسية وكل قسم يرثها ويعدلها
   workingDays: string;
   workingHours: string;
   fridayHours: string;
   consultationDuration: number; // مدة الكشف بالدقائق (افتراضي 15)
+  startTime: string;       // بداية الدوام (مثال: "08:00") - يرث من المركز
+  endTime: string;         // نهاية الدوام (مثال: "22:00") - يرث من المركز
+  daysOff: string[];       // أيام العطلة (افتراضياً الجمعة)
   centerId: string | null;
   adminId: string;
   // تفعيل الاشتراك
