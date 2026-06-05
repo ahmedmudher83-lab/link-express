@@ -106,31 +106,13 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodsSettings>(DEFAULT_PAYMENT_METHODS);
   const [announcements, setAnnouncements] = useState<AdminAnnouncement[]>([]);
 
-  // Initial load from Firebase/localStorage
+  // Initial load from Firestore (primary) with localStorage fallback
   useEffect(() => {
     let mounted = true;
 
     const load = async () => {
       try {
-        // Try localStorage first
-        let localCenters: Center[] = [];
-        let localDepts: Department[] = [];
-        try {
-          const storedCenters = localStorage.getItem('linex_centers');
-          const storedDepts = localStorage.getItem('linex_departments');
-          if (storedCenters) localCenters = JSON.parse(storedCenters);
-          if (storedDepts) localDepts = JSON.parse(storedDepts);
-        } catch { /* ignore */ }
-
-        if (localCenters.length > 0 || localDepts.length > 0) {
-          if (!mounted) return;
-          setCenters(localCenters);
-          setDepartments(localDepts);
-          setLoading(false);
-          return;
-        }
-
-        // Fallback to Firebase
+        // Try Firestore FIRST (real database)
         await seedDefaultData();
         const [c, d, l, p, pm, anns] = await Promise.all([
           getAllCenters(),
@@ -143,15 +125,40 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
 
         if (!mounted) return;
 
-        setCenters(c);
-        setDepartments(d);
-        setLogs(l);
-        if (p) setPricing(p);
-        if (pm) setPaymentMethods(pm);
-        setAnnouncements(anns);
+        // If Firestore has data, use it
+        if (c.length > 0 || d.length > 0) {
+          setCenters(c);
+          setDepartments(d);
+          setLogs(l);
+          if (p) setPricing(p);
+          if (pm) setPaymentMethods(pm);
+          setAnnouncements(anns);
+          setLoading(false);
+          return;
+        }
+
+        // Fallback: check if localStorage has legacy data to migrate
+        let localCenters: Center[] = [];
+        let localDepts: Department[] = [];
+        try {
+          const storedCenters = localStorage.getItem('linex_centers');
+          const storedDepts = localStorage.getItem('linex_departments');
+          if (storedCenters) localCenters = JSON.parse(storedCenters);
+          if (storedDepts) localDepts = JSON.parse(storedDepts);
+        } catch { /* ignore */ }
+
+        if (localCenters.length > 0 || localDepts.length > 0) {
+          // Migrate localStorage data to Firestore
+          for (const center of localCenters) await saveCenter(center);
+          for (const dept of localDepts) await saveDepartment(dept);
+          
+          if (!mounted) return;
+          setCenters(localCenters);
+          setDepartments(localDepts);
+        }
       } catch (err) {
-        console.error('Error loading data:', err);
-        // Use localStorage as last resort
+        console.error('Error loading from Firestore:', err);
+        // Last resort: localStorage only
         try {
           const sc = localStorage.getItem('linex_centers');
           const sd = localStorage.getItem('linex_departments');
@@ -216,11 +223,18 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
       expiresAt: exp,
       status: computeStatus(true, c.createdAt, exp, c.isPaid, c.freeTrialDays) as Center['status']
     };
-    // Persist to localStorage
-    const existing = JSON.parse(localStorage.getItem('linex_centers') || '[]');
-    localStorage.setItem('linex_centers', JSON.stringify([...existing, withExp]));
-    // Also try Firebase in background
-    saveCenter(withExp).catch(() => {});
+    // Save to Firestore FIRST (real database)
+    saveCenter(withExp)
+      .then(() => {
+        // Also save to localStorage as cache
+        const existing = JSON.parse(localStorage.getItem('linex_centers') || '[]');
+        localStorage.setItem('linex_centers', JSON.stringify([...existing, withExp]));
+      })
+      .catch(() => {
+        // Fallback: save to localStorage only
+        const existing = JSON.parse(localStorage.getItem('linex_centers') || '[]');
+        localStorage.setItem('linex_centers', JSON.stringify([...existing, withExp]));
+      });
     setCenters(prev => [...prev, withExp]);
   }, []);
 
@@ -244,11 +258,18 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
       expiresAt: exp,
       status: computeStatus(true, d.createdAt, exp, d.isPaid, d.freeTrialDays) as Department['status']
     };
-    // Persist to localStorage
-    const existing = JSON.parse(localStorage.getItem('linex_departments') || '[]');
-    localStorage.setItem('linex_departments', JSON.stringify([...existing, withExp]));
-    // Also try Firebase in background
-    saveDepartment(withExp).catch(() => {});
+    // Save to Firestore FIRST (real database)
+    saveDepartment(withExp)
+      .then(() => {
+        // Also save to localStorage as cache
+        const existing = JSON.parse(localStorage.getItem('linex_departments') || '[]');
+        localStorage.setItem('linex_departments', JSON.stringify([...existing, withExp]));
+      })
+      .catch(() => {
+        // Fallback: save to localStorage only
+        const existing = JSON.parse(localStorage.getItem('linex_departments') || '[]');
+        localStorage.setItem('linex_departments', JSON.stringify([...existing, withExp]));
+      });
     setDepartments(prev => [...prev, withExp]);
   }, []);
 
