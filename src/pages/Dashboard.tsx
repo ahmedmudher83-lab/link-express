@@ -417,16 +417,16 @@ export default function Dashboard() {
       // =====
       centerId: cEntity.id,
       adminId: auth.admin.id,
-      activationType: 'free',
-      subscriptionPrice: 0,
-      freeTrialDays: 7,
+      activationType: 'paid',
+      subscriptionPrice: pricing.platform.deptMonthlyPrice,
+      freeTrialDays: pricing.trial?.trialDays || 10,
       createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(),
+      expiresAt: new Date(Date.now() + (pricing.trial?.trialDays || 10) * 86400000).toISOString(),
       isPaid: false,
       isActive: true,
       status: 'trial' as Department['status'],
-      appearanceType: 'free_trial',
-      appearanceExpiry: new Date(Date.now() + 3 * 86400000).toISOString(),
+      appearanceType: 'hidden',
+      appearanceExpiry: '',
       promoImages: [],
       promoText: ''
     };
@@ -1186,23 +1186,6 @@ export default function Dashboard() {
 
                   <button
                     onClick={async () => {
-                      const expiry = new Date(Date.now() + 3 * 86400000).toISOString();
-                      const updated = isCenter
-                        ? { ...cEntity!, appearanceType: 'free_trial' as const, appearanceExpiry: expiry }
-                        : { ...dEntity!, appearanceType: 'free_trial' as const, appearanceExpiry: expiry };
-                      isCenter ? setEntity(updated as Center) : setEntity(updated as Department);
-                      isCenter ? await saveCenter(updated as Center) : await saveDepartment(updated as Department);
-                      showMsg('تم تفعيل الظهور المجاني لمدة 3 أيام');
-                    }}
-                    className={`p-4 rounded-xl border-2 text-center transition-all ${(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'free_trial' ? 'border-teal-500 bg-teal-50' : 'border-gray-200'}`}
-                  >
-                    <Eye className={`w-8 h-8 mx-auto mb-2 ${(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'free_trial' ? 'text-teal-600' : 'text-gray-400'}`} />
-                    <p className="font-bold">تجربة مجانية</p>
-                    <p className="text-xs text-gray-500">3 أيام ظهور مجاني</p>
-                  </button>
-
-                  <button
-                    onClick={async () => {
                       const expiry = new Date(Date.now() + 30 * 86400000).toISOString();
                       const updated = isCenter
                         ? { ...cEntity!, appearanceType: 'paid' as const, appearanceExpiry: expiry }
@@ -1333,8 +1316,7 @@ export default function Dashboard() {
               <div className="bg-gray-50 rounded-xl p-4 text-center">
                 <p className="text-sm text-gray-600">
                   {(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'hidden' && 'المركز مخفي حالياً عن الزائرين'}
-                  {(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'free_trial' && 'الظهور مجاني لمدة 3 أيام'}
-                  {(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'paid' && 'الظهور مفعل باشتراك شهري'}
+                  {(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'paid' && 'الظهور مفعل باشتراك مدفوع'}
                 </p>
               </div>
             </Card>

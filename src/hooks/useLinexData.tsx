@@ -1,49 +1,18 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import type { Center, Department, ActivityLog, PricingDefaults, PaymentMethodsSettings, PaymentMethodConfig, AdminAnnouncement, AppearanceVisibilitySettings, FeaturedEntity, AppearanceTarget } from '@/types/linex';
+import type { Center, Department, ActivityLog, PricingDefaults, PaymentMethodsSettings, PaymentMethodConfig, AdminAnnouncement, AppearanceVisibilitySettings, FeaturedEntity } from '@/types/linex';
 import { computeStatus } from '@/types/linex';
 import {
-  getAllCenters,
-  saveCenter,
-  deleteCenter,
-  getAllDepartments,
-  saveDepartment,
-  deleteDepartment,
-  getAllLogs,
-  addLog as addLogService,
-  getPricingSettings,
-  savePricingSettings,
-  getPaymentMethods,
-  savePaymentMethods,
-  getAnnouncements,
-  saveAnnouncement,
-  deleteAnnouncement,
-  seedDefaultData,
-  getAppearanceVisibility,
-  saveAppearanceVisibility,
-  getFeaturedEntities,
-  saveFeaturedEntity,
-  deleteFeaturedEntity,
-} from '@/services/firebaseService';
-
-const DEFAULT_PRICING: PricingDefaults = {
-  platform: {
-    centerMonthlyPrice: 50000,
-    deptMonthlyPrice: 25000,
-    freeTrialDays: 7,
-  },
-  appearance: {
-    monthlyPrice: 10000,
-    dailyPrice: 500,
-    freeTrialDays: 3,
-  },
-  trial: {
-    enabled: true,
-    trialDays: 10,
-    showNotice: true,
-    noticeText: '',
-  },
-};
+  getCenters, saveCenter, removeCenter,
+  getDepartments, saveDepartment, removeDepartment,
+  getPricing, savePricing,
+  getVisibility, saveVisibility,
+  getFeatured, saveFeatured, removeFeatured,
+  getPayments, savePayments,
+  getAnnouncements, saveAnnouncement, removeAnnouncement,
+  seedDefaults,
+  STORAGE_KEYS,
+} from '@/services/dataStorage';
 
 const DEFAULT_PAYMENT_METHODS: PaymentMethodsSettings = {
   methods: [
@@ -64,28 +33,22 @@ function computeExpiry(createdAt: string, freeTrialDays: number): string {
 }
 
 interface LinexDataContext {
-  // Loading state
   loading: boolean;
-  // Data
   centers: Center[];
   departments: Department[];
   logs: ActivityLog[];
   pricing: PricingDefaults;
   paymentMethods: PaymentMethodsSettings;
-  // Announcements
   announcements: AdminAnnouncement[];
-  // Actions - Centers (fire-and-forget, async in background)
+  // Actions
   addCenter: (c: Center) => void;
   closeCenter: (id: string) => void;
-  // Actions - Departments
   addDepartment: (d: Department) => void;
   closeDepartment: (id: string) => void;
-  // Actions - Pricing
   updatePricing: (p: PricingDefaults) => void;
-  // Actions - Renewal
   renewCenter: (id: string, months: number) => void;
   renewDepartment: (id: string, months: number) => void;
-  // Getters - all synchronous (read from local state)
+  // Getters
   getCenterById: (id: string) => Center | undefined;
   getActiveCenters: () => Center[];
   getDepartmentsByCenter: (centerId: string) => Department[];
@@ -94,7 +57,7 @@ interface LinexDataContext {
   getActiveDepartments: () => Department[];
   // Logs
   addLog: (log: ActivityLog) => void;
-  // Payment methods
+  // Payment
   updatePaymentMethods: (p: PaymentMethodsSettings) => void;
   getEnabledPaymentMethods: () => PaymentMethodConfig[];
   togglePaymentMethod: (id: string) => void;
@@ -102,18 +65,17 @@ interface LinexDataContext {
   addAnnouncement: (a: AdminAnnouncement) => void;
   removeAnnouncement: (id: string) => void;
   getActiveAnnouncements: (adminId: string) => AdminAnnouncement[];
-  // Appearance visibility (super admin controlled)
+  // Appearance
   appearanceVisibility: AppearanceVisibilitySettings;
   updateAppearanceVisibility: (s: AppearanceVisibilitySettings) => void;
   shouldShowAppearanceTab: (entityType: 'center' | 'department') => boolean;
-  // Featured entities (manual display by super admin)
+  // Featured
   featuredEntities: FeaturedEntity[];
   addFeaturedEntity: (e: FeaturedEntity) => void;
   removeFeaturedEntity: (id: string) => void;
   getActiveFeatured: () => FeaturedEntity[];
   // Refresh
   refreshStatuses: () => void;
-  refreshData: () => Promise<void>;
 }
 
 const LinexDataCtx = createContext<LinexDataContext | null>(null);
@@ -122,276 +84,114 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [centers, setCenters] = useState<Center[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [logs, setLogs] = useState<ActivityLog[]>([]);
-  const [pricing, setPricing] = useState<PricingDefaults>(DEFAULT_PRICING);
+  const [logs] = useState<ActivityLog[]>([]);
+  const [pricing, setPricing] = useState<PricingDefaults>(getPricing());
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodsSettings>(DEFAULT_PAYMENT_METHODS);
   const [announcements, setAnnouncements] = useState<AdminAnnouncement[]>([]);
-  const [appearanceVisibility, setAppearanceVisibility] = useState<AppearanceVisibilitySettings>({ enabled: false, target: 'all' });
-  const [featuredEntities, setFeaturedEntities] = useState<FeaturedEntity[]>([]);
+  const [appearanceVisibility, setAppearanceVisibility] = useState<AppearanceVisibilitySettings>(getVisibility());
+  const [featuredEntities, setFeaturedEntities] = useState<FeaturedEntity[]>(getFeatured());
 
-  // Initial load from Firestore (primary) with localStorage fallback
+  // Load everything from localStorage on mount
   useEffect(() => {
-    let mounted = true;
+    seedDefaults();
+    setCenters(getCenters());
+    setDepartments(getDepartments());
+    setPricing(getPricing());
+    setPaymentMethods(getPayments());
+    setAnnouncements(getAnnouncements());
+    setAppearanceVisibility(getVisibility());
+    setFeaturedEntities(getFeatured());
+    setLoading(false);
 
-    const load = async () => {
-      try {
-        // Try Firestore FIRST (real database)
-        await seedDefaultData();
-        const [c, d, l, p, pm, anns, av, fe] = await Promise.all([
-          getAllCenters(),
-          getAllDepartments(),
-          getAllLogs(),
-          getPricingSettings(),
-          getPaymentMethods(),
-          getAnnouncements(),
-          getAppearanceVisibility(),
-          getFeaturedEntities(),
-        ]);
-
-        if (!mounted) return;
-
-        // If Firestore has data, use it
-        if (c.length > 0 || d.length > 0) {
-          setCenters(c);
-          setDepartments(d);
-          setLogs(l);
-          if (p) setPricing(p);
-          if (pm) setPaymentMethods(pm);
-          setAnnouncements(anns);
-          if (av) setAppearanceVisibility(av);
-          setFeaturedEntities(fe);
-          setLoading(false);
-          return;
-        }
-
-        // Fallback: check if localStorage has legacy data to migrate
-        let localCenters: Center[] = [];
-        let localDepts: Department[] = [];
-        try {
-          const storedCenters = localStorage.getItem('linex_centers');
-          const storedDepts = localStorage.getItem('linex_departments');
-          if (storedCenters) localCenters = JSON.parse(storedCenters);
-          if (storedDepts) localDepts = JSON.parse(storedDepts);
-        } catch { /* ignore */ }
-
-        if (localCenters.length > 0 || localDepts.length > 0) {
-          // Migrate localStorage data to Firestore
-          for (const center of localCenters) await saveCenter(center);
-          for (const dept of localDepts) await saveDepartment(dept);
-          
-          if (!mounted) return;
-          setCenters(localCenters);
-          setDepartments(localDepts);
-        }
-      } catch (err) {
-        console.error('Error loading from Firestore:', err);
-        // Last resort: localStorage only
-        try {
-          const sc = localStorage.getItem('linex_centers');
-          const sd = localStorage.getItem('linex_departments');
-          if (sc) setCenters(JSON.parse(sc));
-          if (sd) setDepartments(JSON.parse(sd));
-        } catch { /* ignore */ }
-      } finally {
-        if (mounted) setLoading(false);
-      }
+    // Listen for cross-tab changes
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEYS.CENTERS) setCenters(getCenters());
+      if (e.key === STORAGE_KEYS.DEPARTMENTS) setDepartments(getDepartments());
+      if (e.key === STORAGE_KEYS.PRICING) setPricing(getPricing());
+      if (e.key === STORAGE_KEYS.VISIBILITY) setAppearanceVisibility(getVisibility());
     };
-
-    load();
-    return () => { mounted = false; };
-  }, []);
-
-  // Refresh all data from Firebase/localStorage
-  const refreshData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [c, d, l, p, pm] = await Promise.all([
-        getAllCenters(),
-        getAllDepartments(),
-        getAllLogs(),
-        getPricingSettings(),
-        getPaymentMethods(),
-      ]);
-      setCenters(c);
-      setDepartments(d);
-      setLogs(l);
-      if (p) setPricing(p);
-      if (pm) setPaymentMethods(pm);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Refresh statuses for all entities
-  const refreshStatuses = useCallback(() => {
-    setCenters(prev =>
-      prev.map(c => ({
-        ...c,
-        status: computeStatus(c.isActive, c.createdAt, c.expiresAt, c.isPaid, c.freeTrialDays)
-      }))
-    );
-    setDepartments(prev =>
-      prev.map(d => ({
-        ...d,
-        status: computeStatus(d.isActive, d.createdAt, d.expiresAt, d.isPaid, d.freeTrialDays)
-      }))
-    );
-    // Also persist to storage
-    getAllCenters().then(all => all.forEach(c => saveCenter({ ...c, status: computeStatus(c.isActive, c.createdAt, c.expiresAt, c.isPaid, c.freeTrialDays) }))).catch(() => {});
-    getAllDepartments().then(all => all.forEach(d => saveDepartment({ ...d, status: computeStatus(d.isActive, d.createdAt, d.expiresAt, d.isPaid, d.freeTrialDays) }))).catch(() => {});
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
   // ======== Center Operations ========
-
   const addCenter = useCallback((c: Center) => {
     const exp = computeExpiry(c.createdAt, c.freeTrialDays);
-    const withExp = {
-      ...c,
-      expiresAt: exp,
-      status: computeStatus(true, c.createdAt, exp, c.isPaid, c.freeTrialDays) as Center['status']
-    };
-    // Save to Firestore FIRST (real database)
-    saveCenter(withExp)
-      .then(() => {
-        // Also save to localStorage as cache
-        const existing = JSON.parse(localStorage.getItem('linex_centers') || '[]');
-        localStorage.setItem('linex_centers', JSON.stringify([...existing, withExp]));
-      })
-      .catch(() => {
-        // Fallback: save to localStorage only
-        const existing = JSON.parse(localStorage.getItem('linex_centers') || '[]');
-        localStorage.setItem('linex_centers', JSON.stringify([...existing, withExp]));
-      });
-    setCenters(prev => [...prev, withExp]);
+    const withExp = { ...c, expiresAt: exp, status: computeStatus(true, c.createdAt, exp, c.isPaid, c.freeTrialDays) as Center['status'] };
+    saveCenter(withExp);
+    setCenters(getCenters());
   }, []);
 
   const closeCenter = useCallback((id: string) => {
-    deleteCenter(id).catch(() => {});
-    setCenters(prev => prev.filter(c => c.id !== id));
-    // Also close related departments in background
-    const relatedDepts = departments.filter(d => d.centerId === id);
-    for (const d of relatedDepts) {
-      deleteDepartment(d.id).catch(() => {});
-    }
-    setDepartments(prev => prev.filter(d => d.centerId !== id));
-  }, [departments]);
+    // Remove center and all related departments
+    removeCenter(id);
+    const depts = getDepartments().filter(d => d.centerId === id);
+    depts.forEach(d => removeDepartment(d.id));
+    setCenters(getCenters());
+    setDepartments(getDepartments());
+  }, []);
 
   // ======== Department Operations ========
-
   const addDepartment = useCallback((d: Department) => {
     const exp = computeExpiry(d.createdAt, d.freeTrialDays);
-    const withExp = {
-      ...d,
-      expiresAt: exp,
-      status: computeStatus(true, d.createdAt, exp, d.isPaid, d.freeTrialDays) as Department['status']
-    };
-    // Save to Firestore FIRST (real database)
-    saveDepartment(withExp)
-      .then(() => {
-        // Also save to localStorage as cache
-        const existing = JSON.parse(localStorage.getItem('linex_departments') || '[]');
-        localStorage.setItem('linex_departments', JSON.stringify([...existing, withExp]));
-      })
-      .catch(() => {
-        // Fallback: save to localStorage only
-        const existing = JSON.parse(localStorage.getItem('linex_departments') || '[]');
-        localStorage.setItem('linex_departments', JSON.stringify([...existing, withExp]));
-      });
-    setDepartments(prev => [...prev, withExp]);
+    const withExp = { ...d, expiresAt: exp, status: computeStatus(true, d.createdAt, exp, d.isPaid, d.freeTrialDays) as Department['status'] };
+    saveDepartment(withExp);
+    setDepartments(getDepartments());
   }, []);
 
   const closeDepartment = useCallback((id: string) => {
-    deleteDepartment(id).catch(() => {});
-    setDepartments(prev => prev.filter(d => d.id !== id));
+    removeDepartment(id);
+    setDepartments(getDepartments());
   }, []);
 
-  // ======== Pricing ========
-
+  // ======== Pricing - NOW ACTUALLY SAVES ========
   const updatePricing = useCallback((p: PricingDefaults) => {
-    savePricingSettings(p).catch(() => {});
-    setPricing(p);
+    savePricing(p);
+    setPricing({ ...p }); // Force new reference
   }, []);
 
   // ======== Renewal ========
-
   const renewCenter = useCallback((id: string, months: number) => {
-    setCenters(prev => {
-      return prev.map(c => {
-        if (c.id !== id) return c;
-        const now = new Date(), cur = new Date(c.expiresAt);
-        const base = cur > now ? cur : now;
-        const ne = new Date(base);
-        ne.setMonth(ne.getMonth() + months);
-        const updated = {
-          ...c,
-          isPaid: true,
-          expiresAt: ne.toISOString(),
-          status: computeStatus(true, c.createdAt, ne.toISOString(), true, c.freeTrialDays) as Center['status']
-        };
-        saveCenter(updated).catch(() => {});
-        return updated;
-      });
-    });
+    const all = getCenters();
+    const target = all.find(c => c.id === id);
+    if (!target) return;
+    const now = new Date(), cur = new Date(target.expiresAt);
+    const base = cur > now ? cur : now;
+    const ne = new Date(base);
+    ne.setMonth(ne.getMonth() + months);
+    const updated = { ...target, isPaid: true, expiresAt: ne.toISOString(), status: computeStatus(true, target.createdAt, ne.toISOString(), true, target.freeTrialDays) as Center['status'] };
+    saveCenter(updated);
+    setCenters(getCenters());
   }, []);
 
   const renewDepartment = useCallback((id: string, months: number) => {
-    setDepartments(prev => {
-      return prev.map(d => {
-        if (d.id !== id) return d;
-        const now = new Date(), cur = new Date(d.expiresAt);
-        const base = cur > now ? cur : now;
-        const ne = new Date(base);
-        ne.setMonth(ne.getMonth() + months);
-        const updated = {
-          ...d,
-          isPaid: true,
-          expiresAt: ne.toISOString(),
-          status: computeStatus(true, d.createdAt, ne.toISOString(), true, d.freeTrialDays) as Department['status']
-        };
-        saveDepartment(updated).catch(() => {});
-        return updated;
-      });
-    });
+    const all = getDepartments();
+    const target = all.find(d => d.id === id);
+    if (!target) return;
+    const now = new Date(), cur = new Date(target.expiresAt);
+    const base = cur > now ? cur : now;
+    const ne = new Date(base);
+    ne.setMonth(ne.getMonth() + months);
+    const updated = { ...target, isPaid: true, expiresAt: ne.toISOString(), status: computeStatus(true, target.createdAt, ne.toISOString(), true, target.freeTrialDays) as Department['status'] };
+    saveDepartment(updated);
+    setDepartments(getDepartments());
   }, []);
 
-  // ======== Synchronous Getters ========
-
-  const getCenterById = useCallback((id: string): Center | undefined => {
-    return centers.find(c => c.id === id);
-  }, [centers]);
-
-  const getActiveCenters = useCallback((): Center[] => {
-    return centers.filter(c => c.isActive && c.status !== 'expired');
-  }, [centers]);
-
-  const getDepartmentsByCenter = useCallback((centerId: string): Department[] => {
-    return departments.filter(d => d.centerId === centerId && d.isActive);
-  }, [departments]);
-
-  const getIndependentDepartments = useCallback((): Department[] => {
-    return departments.filter(d => d.centerId === null && d.isActive);
-  }, [departments]);
-
-  const getDepartmentById = useCallback((id: string): Department | undefined => {
-    return departments.find(d => d.id === id);
-  }, [departments]);
-
-  const getActiveDepartments = useCallback((): Department[] => {
-    return departments.filter(d => d.isActive && d.status !== 'expired');
-  }, [departments]);
+  // ======== Getters ========
+  const getCenterById = useCallback((id: string) => centers.find(c => c.id === id), [centers]);
+  const getActiveCenters = useCallback(() => centers.filter(c => c.isActive && c.status !== 'expired'), [centers]);
+  const getDepartmentsByCenter = useCallback((centerId: string) => departments.filter(d => d.centerId === centerId && d.isActive), [departments]);
+  const getIndependentDepartments = useCallback(() => departments.filter(d => d.centerId === null && d.isActive), [departments]);
+  const getDepartmentById = useCallback((id: string) => departments.find(d => d.id === id), [departments]);
+  const getActiveDepartments = useCallback(() => departments.filter(d => d.isActive && d.status !== 'expired'), [departments]);
 
   // ======== Logs ========
+  const addLog = useCallback((log: ActivityLog) => { /* logs not persisted yet */ }, []);
 
-  const addLog = useCallback((log: ActivityLog) => {
-    addLogService(log).catch(() => {});
-    setLogs(prev => [log, ...prev]);
-  }, []);
-
-  // ======== Payment Methods ========
-
+  // ======== Payment ========
   const updatePaymentMethods = useCallback((p: PaymentMethodsSettings) => {
-    savePaymentMethods(p).catch(() => {});
-    setPaymentMethods(p);
+    savePayments(p);
+    setPaymentMethods({ ...p });
   }, []);
 
   const getEnabledPaymentMethods = useCallback((): PaymentMethodConfig[] => {
@@ -400,25 +200,21 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
 
   const togglePaymentMethod = useCallback((id: string) => {
     setPaymentMethods(prev => {
-      const updated = {
-        ...prev,
-        methods: prev.methods.map(m => m.id === id ? { ...m, enabled: !m.enabled } : m)
-      };
-      savePaymentMethods(updated).catch(() => {});
+      const updated = { ...prev, methods: prev.methods.map(m => m.id === id ? { ...m, enabled: !m.enabled } : m) };
+      savePayments(updated);
       return updated;
     });
   }, []);
 
-  // ======== Announcement Operations ========
-
+  // ======== Announcements ========
   const addAnnouncement = useCallback((a: AdminAnnouncement) => {
-    saveAnnouncement(a).catch(() => {});
-    setAnnouncements(prev => [a, ...prev]);
+    saveAnnouncement(a);
+    setAnnouncements(getAnnouncements());
   }, []);
 
   const removeAnnouncement = useCallback((id: string) => {
-    deleteAnnouncement(id).catch(() => {});
-    setAnnouncements(prev => prev.filter(a => a.id !== id));
+    removeAnnouncement_(id);
+    setAnnouncements(getAnnouncements());
   }, []);
 
   const getActiveAnnouncements = useCallback((adminId: string) => {
@@ -429,11 +225,10 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
     });
   }, [announcements]);
 
-  // ======== Appearance Visibility ========
-
+  // ======== Appearance ========
   const updateAppearanceVisibility = useCallback((s: AppearanceVisibilitySettings) => {
-    saveAppearanceVisibility(s).catch(() => {});
-    setAppearanceVisibility(s);
+    saveVisibility(s);
+    setAppearanceVisibility({ ...s });
   }, []);
 
   const shouldShowAppearanceTab = useCallback((entityType: 'center' | 'department'): boolean => {
@@ -444,16 +239,15 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
     return false;
   }, [appearanceVisibility]);
 
-  // ======== Featured Entities ========
-
+  // ======== Featured ========
   const addFeaturedEntity = useCallback((e: FeaturedEntity) => {
-    saveFeaturedEntity(e).catch(() => {});
-    setFeaturedEntities(prev => [e, ...prev]);
+    saveFeatured(e);
+    setFeaturedEntities(getFeatured());
   }, []);
 
   const removeFeaturedEntity = useCallback((id: string) => {
-    deleteFeaturedEntity(id).catch(() => {});
-    setFeaturedEntities(prev => prev.filter(f => f.id !== id));
+    removeFeatured(id);
+    setFeaturedEntities(getFeatured());
   }, []);
 
   const getActiveFeatured = useCallback((): FeaturedEntity[] => {
@@ -461,42 +255,28 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
     return featuredEntities.filter(f => f.startDate <= now && f.endDate >= now);
   }, [featuredEntities]);
 
+  // ======== Refresh ========
+  const refreshStatuses = useCallback(() => {
+    setCenters(prev => prev.map(c => ({
+      ...c,
+      status: computeStatus(c.isActive, c.createdAt, c.expiresAt, c.isPaid, c.freeTrialDays)
+    })));
+    setDepartments(prev => prev.map(d => ({
+      ...d,
+      status: computeStatus(d.isActive, d.createdAt, d.expiresAt, d.isPaid, d.freeTrialDays)
+    })));
+  }, []);
+
   const value = {
-    loading,
-    centers,
-    departments,
-    logs,
-    pricing,
-    paymentMethods,
-    addCenter,
-    closeCenter,
-    addDepartment,
-    closeDepartment,
-    updatePricing,
-    renewCenter,
-    renewDepartment,
-    getCenterById,
-    getActiveCenters,
-    getDepartmentsByCenter,
-    getIndependentDepartments,
-    getDepartmentById,
-    getActiveDepartments,
-    addLog,
-    updatePaymentMethods,
-    getEnabledPaymentMethods,
-    togglePaymentMethod,
-    announcements,
-    addAnnouncement,
-    removeAnnouncement,
-    getActiveAnnouncements,
-    // Appearance
-    appearanceVisibility,
-    updateAppearanceVisibility,
-    shouldShowAppearanceTab,
-    featuredEntities,
-    addFeaturedEntity,
-    removeFeaturedEntity,
-    getActiveFeatured,
+    loading, centers, departments, logs, pricing, paymentMethods, announcements,
+    addCenter, closeCenter, addDepartment, closeDepartment,
+    updatePricing, renewCenter, renewDepartment,
+    getCenterById, getActiveCenters, getDepartmentsByCenter,
+    getIndependentDepartments, getDepartmentById, getActiveDepartments,
+    addLog, updatePaymentMethods, getEnabledPaymentMethods, togglePaymentMethod,
+    addAnnouncement, removeAnnouncement, getActiveAnnouncements,
+    appearanceVisibility, updateAppearanceVisibility, shouldShowAppearanceTab,
+    featuredEntities, addFeaturedEntity, removeFeaturedEntity, getActiveFeatured,
     refreshStatuses,
   };
 
