@@ -3,8 +3,9 @@ import { useNavigate, useParams } from 'react-router';
 import { useBooking } from '@/hooks/useBooking';
 import { useLinexData } from '@/hooks/useLinexData';
 import { isValidIraqiPhone } from '@/data/medicalData';
+import { saveBooking, getDepartmentBookings } from '@/services/googleCalendarService';
 import type { BookingSlot, BookingData } from '@/types/booking';
-import type { Department } from '@/types/linex';
+import type { Department, BookingRecord } from '@/types/linex';
 import ProgressStepper from '@/components/ProgressStepper';
 import Guide from '@/components/Guide';
 import { Button } from '@/components/ui/button';
@@ -21,7 +22,7 @@ import {
 } from 'lucide-react';
 
 // Generate slots from department schedule
-function generateDeptSlots(dept: Department): BookingSlot[] {
+function generateDeptSlots(dept: Department, selectedDate?: string): BookingSlot[] {
   const slots: BookingSlot[] = [];
   const duration = dept.consultationDuration || 15;
   
@@ -32,9 +33,26 @@ function generateDeptSlots(dept: Department): BookingSlot[] {
   const [startH, startM] = start.split(':').map(Number);
   const [endH, endM] = end.split(':').map(Number);
 
+  // Get current time for filtering past slots
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentMinute = now.getMinutes();
+  const today = now.toISOString().split('T')[0];
+  const isToday = selectedDate === today;
+
   let h = startH, m = startM;
   while (h < endH || (h === endH && m < endM)) {
     const time = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    
+    // Skip past slots if today
+    if (isToday) {
+      if (h < currentHour || (h === currentHour && m <= currentMinute)) {
+        m += duration;
+        if (m >= 60) { h += 1; m -= 60; }
+        continue;
+      }
+    }
+    
     const period = h < 12 ? 'morning' : h < 16 ? 'afternoon' : 'evening';
     slots.push({ time, available: true, period });
     m += duration;
@@ -165,10 +183,11 @@ export default function PageA() {
   const handleDateSelect = (date: string) => {
     setSelectedDate(date);
     if (selectedDept) {
-      const generatedSlots = generateDeptSlots(selectedDept);
-      // Remove booked slots
-      const booked = getBookedSlots(selectedDept.id, date);
-      const availableSlots = generatedSlots.filter(s => !booked.includes(s.time));
+      const generatedSlots = generateDeptSlots(selectedDept, date);
+      // Remove booked slots from database
+      const bookedRecords = getDepartmentBookings(selectedDept.id, date);
+      const bookedTimes = bookedRecords.map(b => b.time);
+      const availableSlots = generatedSlots.filter(s => !bookedTimes.includes(s.time));
       setSlots(availableSlots);
     }
   };
@@ -207,11 +226,50 @@ export default function PageA() {
   };
 
   const handleConfirm = () => {
-    // Save booked slot
-    if (selectedDept && selectedDate && selectedTime) {
-      const key = `booked_${selectedDept.id}_${selectedDate}`;
-      const existing = JSON.parse(localStorage.getItem(key) || '[]');
-      localStorage.setItem(key, JSON.stringify([...existing, selectedTime]));
+    if (!selectedDept || !selectedDate || !selectedTime) return;
+    
+    // Create booking record
+    const bookingRecord: BookingRecord = {
+      id: 'BK' + Date.now().toString(36).toUpperCase(),
+      patientName: patientForm.fullName,
+      patientPhone: patientForm.phone,
+      patientEmail: patientForm.email || undefined,
+      patientAge: patientForm.age || undefined,
+      patientGender: patientForm.gender || undefined,
+      departmentId: selectedDept.id,
+      departmentName: selectedDept.name,
+      centerId: centerId || undefined,
+      doctorName: selectedDept.doctorName || selectedDept.name,
+      date: selectedDate,
+      time: selectedTime,
+      dateTimeDisplay: booking.date,
+      notes: patientForm.notes || undefined,
+      status: 'confirmed',
+      createdAt: new Date().toISOString(),
+    };
+    
+    // Save booking to database
+    saveBooking(bookingRecord);
+    
+    // Sync with Google Calendar if configured (async, non-blocking)
+    const calendarSettingsStr = localStorage.getItem(`calendar_${selectedDept.id}`);
+    if (calendarSettingsStr) {
+      import('@/services/googleCalendarService').then(({ addBookingToCalendar }) => {
+        try {
+          const settings = JSON.parse(calendarSettingsStr);
+          addBookingToCalendar(settings, bookingRecord).then(eventId => {
+            if (eventId) {
+              // Update booking with Google Event ID
+              const bookings = JSON.parse(localStorage.getItem('linex_bookings') || '[]');
+              const idx = bookings.findIndex((b: BookingRecord) => b.id === bookingRecord.id);
+              if (idx >= 0) {
+                bookings[idx].googleEventId = eventId;
+                localStorage.setItem('linex_bookings', JSON.stringify(bookings));
+              }
+            }
+          });
+        } catch { /* ignore */ }
+      });
     }
     
     const bookingId = generateBookingId();

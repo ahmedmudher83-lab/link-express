@@ -3,7 +3,17 @@ import { useNavigate } from 'react-router';
 import { useAuth } from '@/hooks/useAuth';
 import { useLinexData } from '@/hooks/useLinexData';
 import { saveCenter, saveDepartment } from '@/services/firebaseService';
-import type { Center, Department, Doctor } from '@/types/linex';
+import {
+  syncDoctorSchedule,
+  generateDailyReport,
+  sendReportByEmail,
+  sendReportByWhatsApp,
+  getTodayDepartmentBookings,
+  isCalendarConfigured,
+  type DoctorCalendarSettings,
+  type DailyReportSettings,
+} from '@/services/googleCalendarService';
+import type { Center, Department, Doctor, BookingRecord } from '@/types/linex';
 import { getStatusLabel, getStatusColor, getRemainingDays } from '@/types/linex';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,10 +24,10 @@ import {
   Building2, Clock, ImagePlus, Save, LogOut, User, Phone, Mail,
   Plus, Trash2, ExternalLink, Copy, CheckCircle2, AlertCircle,
   Stethoscope, CalendarDays, Shield, Edit3, Eye, EyeOff, Megaphone,
-  Hospital
+  Hospital, RefreshCw, FileText
 } from 'lucide-react';
 
-type Tab = 'info' | 'schedule' | 'doctors' | 'departments' | 'visibility' | 'share';
+type Tab = 'info' | 'schedule' | 'doctors' | 'departments' | 'visibility' | 'calendar' | 'reports' | 'share';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -76,6 +86,28 @@ export default function Dashboard() {
   const [appearanceDays, setAppearanceDays] = useState(7);
   const [appearanceStartDate, setAppearanceStartDate] = useState(new Date().toISOString().split('T')[0]);
 
+  // Google Calendar settings
+  const [showCalendarSettings, setShowCalendarSettings] = useState(false);
+  const [calendarForm, setCalendarForm] = useState({
+    enabled: false,
+    googleEmail: '',
+    calendarId: 'primary',
+  });
+
+  // Daily report settings
+  const [showReportSettings, setShowReportSettings] = useState(false);
+  const [reportForm, setReportForm] = useState({
+    enabled: false,
+    reportTime: '11:00',
+    sendToEmail: true,
+    sendToWhatsApp: true,
+    whatsappNumber: '',
+    doctorEmail: '',
+  });
+
+  // Today's bookings preview
+  const [todayBookings, setTodayBookings] = useState<BookingRecord[]>([]);
+
   const showMsg = (t: string) => { setMsg(t); setTimeout(() => setMsg(''), 4000); };
 
   // Get active announcements for this admin
@@ -132,6 +164,52 @@ export default function Dashboard() {
       </div>
     );
   }
+
+  // Daily report scheduler - checks every minute
+  useEffect(() => {
+    if (!entity) return;
+    
+    const checkReportTime = () => {
+      const reportStr = localStorage.getItem(`report_${entity.id}`);
+      if (!reportStr) return;
+      
+      try {
+        const settings: DailyReportSettings = JSON.parse(reportStr);
+        if (!settings.enabled) return;
+        
+        const now = new Date();
+        const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        
+        // Check if it's time to send report (within the same minute)
+        if (currentTime === settings.reportTime) {
+          // Check if we already sent report today
+          const lastSent = localStorage.getItem(`report_sent_${entity.id}_${now.toISOString().split('T')[0]}`);
+          if (lastSent) return; // Already sent today
+          
+          const report = generateDailyReport(entity.id, entity.name, (entity as Department).doctorName || entity.name);
+          
+          // Send via email
+          if (settings.sendToEmail && settings.doctorEmail) {
+            sendReportByEmail(settings.doctorEmail, 'جدول مواعيد اليوم - LinkEX', report);
+          }
+          
+          // Send via WhatsApp
+          if (settings.sendToWhatsApp && settings.whatsappNumber) {
+            sendReportByWhatsApp(settings.whatsappNumber, report);
+          }
+          
+          // Mark as sent for today
+          localStorage.setItem(`report_sent_${entity.id}_${now.toISOString().split('T')[0]}`, 'true');
+          showMsg('تم إرسال التقرير اليومي');
+        }
+      } catch { /* ignore */ }
+    };
+    
+    const interval = setInterval(checkReportTime, 60000); // Check every minute
+    checkReportTime(); // Check immediately on mount
+    
+    return () => clearInterval(interval);
+  }, [entity]);
 
   if (!entity) {
     return (
@@ -607,6 +685,8 @@ export default function Dashboard() {
             ...(isCenter ? [{ id: 'doctors' as Tab, label: 'الأطباء والتخصصات', icon: Stethoscope }] : []),
             ...(isCenter ? [{ id: 'departments' as Tab, label: 'الأقسام الطبية', icon: Hospital }] : []),
             ...(shouldShowAppearanceTab(entityType) ? [{ id: 'visibility' as Tab, label: 'الظهور والإعلان', icon: Eye }] : []),
+            { id: 'calendar' as Tab, label: 'تقويم Google', icon: CalendarDays },
+            { id: 'reports' as Tab, label: 'التقارير اليومية', icon: FileText },
             { id: 'share' as Tab, label: 'مشاركة الرابط', icon: ExternalLink },
           ].map(t => (
             <Button
@@ -1256,6 +1336,306 @@ export default function Dashboard() {
                   {(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'free_trial' && 'الظهور مجاني لمدة 3 أيام'}
                   {(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'paid' && 'الظهور مفعل باشتراك شهري'}
                 </p>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* CALENDAR TAB */}
+        {tab === 'calendar' && (
+          <div className="space-y-6">
+            <Card className="p-6 border-2 border-blue-200">
+              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <CalendarDays className="w-5 h-5 text-blue-600" />
+                ربط مع Google Calendar
+              </h3>
+              <p className="text-sm text-gray-500 mb-4">
+                اربط تقويم Google الخاص بك ليتم تزامن جدول المواعيد تلقائياً. عندما يقوم مريض بالحجز، يُسجل الموعد مباشرة في تقويمك.
+              </p>
+
+              {/* Enable/Disable */}
+              <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg mb-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${calendarForm.enabled ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-400'}`}>
+                    <CalendarDays className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-900">تفعيل التزامن مع Google Calendar</p>
+                    <p className="text-xs text-gray-500">تسجيل الحجوزات تلقائياً في تقويم Google</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    const newVal = !calendarForm.enabled;
+                    setCalendarForm({ ...calendarForm, enabled: newVal });
+                    if (entity) {
+                      localStorage.setItem(`calendar_${entity.id}`, JSON.stringify({ ...calendarForm, enabled: newVal }));
+                    }
+                    showMsg(newVal ? 'تم تفعيل التزامن' : 'تم تعطيل التزامن');
+                  }}
+                  className={`relative w-14 h-8 rounded-full transition-all ${calendarForm.enabled ? 'bg-green-500' : 'bg-gray-300'}`}
+                >
+                  <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-all ${calendarForm.enabled ? 'left-7' : 'left-1'}`} />
+                </button>
+              </div>
+
+              {calendarForm.enabled && (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>بريد Gmail</Label>
+                    <Input
+                      type="email"
+                      value={calendarForm.googleEmail}
+                      onChange={e => setCalendarForm({ ...calendarForm, googleEmail: e.target.value })}
+                      placeholder="doctor@gmail.com"
+                      dir="ltr"
+                    />
+                    <p className="text-xs text-gray-400">أدخل بريد Gmail المرتبط بتقويم Google</p>
+                  </div>
+
+                  <Button
+                    onClick={() => {
+                      // In production, this triggers Google OAuth flow
+                      // For now, save settings
+                      const settings: DoctorCalendarSettings = {
+                        enabled: true,
+                        googleAccessToken: '',
+                        googleRefreshToken: '',
+                        googleEmail: calendarForm.googleEmail,
+                        calendarId: calendarForm.calendarId,
+                      };
+                      if (entity) {
+                        localStorage.setItem(`calendar_${entity.id}`, JSON.stringify(settings));
+                      }
+                      showMsg('تم حفظ إعدادات التقويم');
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 gap-2"
+                  >
+                    <Save className="w-4 h-4" />
+                    حفظ الإعدادات
+                  </Button>
+
+                  {/* Sync Schedule Button */}
+                  <div className="pt-4 border-t">
+                    <p className="text-sm text-gray-600 mb-2">مزامنة جدول الدوام:</p>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        if (!entity) return;
+                        const settingsStr = localStorage.getItem(`calendar_${entity.id}`);
+                        if (!settingsStr) { showMsg('أكمل إعدادات التقويم أولاً'); return; }
+                        try {
+                          const settings = JSON.parse(settingsStr);
+                          if (!isCalendarConfigured(settings)) {
+                            showMsg('يجب تفعيل Google Calendar أولاً');
+                            return;
+                          }
+                          syncDoctorSchedule(settings, entity as Department).then(success => {
+                            showMsg(success ? 'تمت مزامنة الجدول بنجاح' : 'فشلت المزامنة');
+                          });
+                        } catch { showMsg('خطأ في الإعدادات'); }
+                      }}
+                      className="gap-2"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      مزامنة الجدول مع Google Calendar
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </Card>
+          </div>
+        )}
+
+        {/* REPORTS TAB */}
+        {tab === 'reports' && (
+          <div className="space-y-6">
+            {/* Report Settings */}
+            <Card className="p-6 border-2 border-green-200">
+              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-green-600" />
+                إعدادات التقرير اليومي
+              </h3>
+              <p className="text-sm text-gray-500 mb-4">
+                اضبط وقت إرسال تقرير حجوزات اليوم. يصلك التقرير قبل بدء الدوام بوقت كافٍ.
+              </p>
+
+              {/* Enable/Disable */}
+              <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg mb-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${reportForm.enabled ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-400'}`}>
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-900">تفعيل التقرير اليومي</p>
+                    <p className="text-xs text-gray-500">استلام جدول حجوزات اليوم تلقائياً</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    const newVal = !reportForm.enabled;
+                    setReportForm({ ...reportForm, enabled: newVal });
+                    if (entity) {
+                      localStorage.setItem(`report_${entity.id}`, JSON.stringify({ ...reportForm, enabled: newVal }));
+                    }
+                    showMsg(newVal ? 'تم تفعيل التقرير اليومي' : 'تم تعطيل التقرير');
+                  }}
+                  className={`relative w-14 h-8 rounded-full transition-all ${reportForm.enabled ? 'bg-green-500' : 'bg-gray-300'}`}
+                >
+                  <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-all ${reportForm.enabled ? 'left-7' : 'left-1'}`} />
+                </button>
+              </div>
+
+              {reportForm.enabled && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>وقت إرسال التقرير</Label>
+                      <Input
+                        type="time"
+                        value={reportForm.reportTime}
+                        onChange={e => setReportForm({ ...reportForm, reportTime: e.target.value })}
+                      />
+                      <p className="text-xs text-gray-400">الوقت الذي يصلك فيه التقرير (قبل الدوام)</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>بريد الطبيب</Label>
+                      <Input
+                        type="email"
+                        value={reportForm.doctorEmail}
+                        onChange={e => setReportForm({ ...reportForm, doctorEmail: e.target.value })}
+                        placeholder="doctor@example.com"
+                        dir="ltr"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>رقم واتساب</Label>
+                      <Input
+                        value={reportForm.whatsappNumber}
+                        onChange={e => setReportForm({ ...reportForm, whatsappNumber: e.target.value })}
+                        placeholder="07xxxxxxxx"
+                        dir="ltr"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-4 text-sm">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={reportForm.sendToEmail}
+                        onChange={e => setReportForm({ ...reportForm, sendToEmail: e.target.checked })}
+                      />
+                      <span>إرسال بالبريد الإلكتروني</span>
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={reportForm.sendToWhatsApp}
+                        onChange={e => setReportForm({ ...reportForm, sendToWhatsApp: e.target.checked })}
+                      />
+                      <span>إرسال بواتساب</span>
+                    </label>
+                  </div>
+
+                  <Button
+                    onClick={() => {
+                      const settings: DailyReportSettings = {
+                        enabled: reportForm.enabled,
+                        reportTime: reportForm.reportTime,
+                        sendToEmail: reportForm.sendToEmail,
+                        sendToWhatsApp: reportForm.sendToWhatsApp,
+                        whatsappNumber: reportForm.whatsappNumber,
+                        doctorEmail: reportForm.doctorEmail,
+                      };
+                      if (entity) {
+                        localStorage.setItem(`report_${entity.id}`, JSON.stringify(settings));
+                      }
+                      showMsg('تم حفظ إعدادات التقرير');
+                    }}
+                    className="bg-green-600 hover:bg-green-700 gap-2"
+                  >
+                    <Save className="w-4 h-4" />
+                    حفظ الإعدادات
+                  </Button>
+                </div>
+              )}
+            </Card>
+
+            {/* Manual Report */}
+            <Card className="p-6 border-2 border-amber-200">
+              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-amber-600" />
+                إرسال تقرير يدوي
+              </h3>
+              <p className="text-sm text-gray-500 mb-4">
+                أرسل تقرير حجوزات اليوم يدوياً الآن.
+              </p>
+
+              {/* Preview */}
+              {todayBookings.length > 0 && (
+                <div className="bg-gray-50 p-4 rounded-lg mb-4 max-h-60 overflow-y-auto">
+                  <p className="text-sm font-semibold text-gray-700 mb-2">
+                    حجوزات اليوم: {todayBookings.length}
+                  </p>
+                  {todayBookings.map((b, i) => (
+                    <div key={b.id} className="text-xs text-gray-600 py-1 border-b last:border-0">
+                      {i + 1}. {b.time} - {b.patientName} ({b.patientPhone})
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (!entity) { showMsg('لا يوجد كيان'); return; }
+                    const bookings = getTodayDepartmentBookings(entity.id);
+                    setTodayBookings(bookings);
+                    showMsg(`تم تحميل ${bookings.length} حجز`);
+                  }}
+                  className="gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  تحميل الحجوزات
+                </Button>
+
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (!entity) { showMsg('لا يوجد كيان'); return; }
+                    const report = generateDailyReport(entity.id, entity.name, (entity as Department).doctorName || entity.name);
+                    if (reportForm.doctorEmail) {
+                      sendReportByEmail(reportForm.doctorEmail, 'جدول مواعيد اليوم - LinkEX', report);
+                      showMsg('تم فتح البريد للإرسال');
+                    } else {
+                      showMsg('أدخل بريد الطبيب أولاً');
+                    }
+                  }}
+                  className="gap-2"
+                >
+                  <Mail className="w-4 h-4" />
+                  إرسال بالبريد
+                </Button>
+
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (!entity) { showMsg('لا يوجد كيان'); return; }
+                    const report = generateDailyReport(entity.id, entity.name, (entity as Department).doctorName || entity.name);
+                    if (reportForm.whatsappNumber) {
+                      sendReportByWhatsApp(reportForm.whatsappNumber, report);
+                      showMsg('تم فتح واتساب للإرسال');
+                    } else {
+                      showMsg('أدخل رقم واتساب أولاً');
+                    }
+                  }}
+                  className="gap-2"
+                >
+                  <Phone className="w-4 h-4" />
+                  إرسال بواتساب
+                </Button>
               </div>
             </Card>
           </div>

@@ -158,6 +158,47 @@ export interface FeaturedEntity {
   createdAt: string;
 }
 
+// إعدادات تقويم Google للطبيب
+export interface DoctorCalendarSettings {
+  enabled: boolean;           // هل التقويم مفعل
+  googleAccessToken: string;  // Access Token من Google OAuth
+  googleRefreshToken: string; // Refresh Token
+  googleEmail: string;        // بريد Gmail المرتبط
+  calendarId: string;         // ID التقويم (عادةً 'primary')
+}
+
+// إعدادات التقرير اليومي
+export interface DailyReportSettings {
+  enabled: boolean;           // هل التقرير مفعل
+  reportTime: string;         // وقت إرسال التقرير (مثال: "11:00")
+  sendToEmail: boolean;       // إرسال للبريد
+  sendToWhatsApp: boolean;    // إرسال لواتساب
+  whatsappNumber: string;     // رقم الواتساب
+  doctorEmail: string;        // بريد الطبيب
+}
+
+// حجز مسجل (لحفظ في قاعدة البيانات)
+export interface BookingRecord {
+  id: string;
+  patientName: string;
+  patientPhone: string;
+  patientEmail?: string;
+  patientAge?: string;
+  patientGender?: string;
+  departmentId: string;
+  departmentName: string;
+  centerId?: string;
+  doctorName: string;
+  date: string;               // YYYY-MM-DD
+  time: string;               // HH:MM
+  dateTimeDisplay: string;    // عرض للمستخدم
+  notes?: string;
+  status: 'confirmed' | 'cancelled' | 'completed';
+  googleEventId?: string;     // ID الحدث في Google Calendar
+  createdAt: string;
+  updatedAt?: string;
+}
+
 // إعدادات الفترة التجريبية العامة - يتحكم فيها المدير العام
 export interface GlobalTrialSettings {
   enabled: boolean;           // هل الفترة التجريبية مفعلة
