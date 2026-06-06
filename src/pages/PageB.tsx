@@ -10,7 +10,7 @@ import {
   CalendarCheck, Clock, Stethoscope, Phone,
   MapPin, Printer, RotateCcw, CheckCircle2, AlertCircle,
   CalendarDays, Award, Star, Home, Building2,
-  Mail, ChevronLeft, Users, Share2, ExternalLink
+  Mail, ChevronLeft, Users
 } from 'lucide-react';
 
 export default function PageB() {
@@ -139,16 +139,32 @@ export default function PageB() {
       </div>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 -mt-6 pb-12">
-        {/* Booking ID Card */}
+        {/* Patient Ticket Card - Name + Date + Time */}
         <Card className="p-6 mb-4 border-2 border-teal-200 shadow-xl bg-white">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="text-center md:text-right">
-              <p className="text-sm text-gray-500 mb-1">رقم الحجز</p>
-              <p className="text-2xl font-bold text-teal-700 font-mono" dir="ltr">
-                {bookingId || 'BK-PENDING'}
-              </p>
+            <div className="flex-1">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center sm:text-right">
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">اسم المريض</p>
+                  <p className="text-xl font-bold text-teal-700">
+                    {booking.patient?.fullName || 'غير محدد'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">تاريخ الحجز</p>
+                  <p className="text-xl font-bold text-teal-700">
+                    {booking.date || 'غير محدد'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">وقت الحجز</p>
+                  <p className="text-xl font-bold text-teal-700" dir="ltr">
+                    {booking.time || 'غير محدد'}
+                  </p>
+                </div>
+              </div>
             </div>
-            <Badge className="bg-green-100 text-green-700 border-green-200 px-4 py-1.5 text-sm">
+            <Badge className="bg-green-100 text-green-700 border-green-200 px-4 py-1.5 text-sm shrink-0">
               <CheckCircle2 className="w-4 h-4 ml-1" />
               حجز مؤكد
             </Badge>
@@ -327,87 +343,34 @@ export default function PageB() {
               </ul>
             </Card>
 
-            {/* رابط المركز وزر "هنا" */}
-            <Card className="p-5 border-2" style={{ borderColor: '#5C7A6B', backgroundColor: '#E4E8E0' }}>
-              <h3 className="font-bold text-center mb-3 flex items-center justify-center gap-2" style={{ color: '#2D2825' }}>
-                <ExternalLink className="w-5 h-5" style={{ color: '#5C7A6B' }} />
-                رابط صفحة المركز
-              </h3>
-              <p className="text-sm text-gray-600 text-center mb-3">
-                انسخ هذا الرابط وانشره على انستغرام، فيسبوك، تيك توك أو سناب شات
-              </p>
-              <div className="bg-white rounded-lg p-3 text-sm font-mono break-all text-center mb-3" dir="ltr" style={{ color: '#5C7A6B' }}>
-                {typeof window !== 'undefined' ? window.location.origin : ''}/center/{centerId}
-              </div>
-              <div className="flex flex-col gap-2">
-                <Button
-                  className="w-full gap-2 hover:opacity-90 text-white text-lg"
-                  style={{ backgroundColor: '#5C7A6B' }}
-                  onClick={() => {
-                    const url = `${window.location.origin}/center/${centerId}`;
-                    navigator.clipboard.writeText(url).then(() => {
-                      alert('تم نسخ رابط المركز! الصقه في منشورك على مواقع التواصل');
-                    });
-                  }}
-                >
-                  <span className="font-bold text-xl">هنا</span>
-                  <ExternalLink className="w-5 h-5" />
+            {/* Quick Actions */}
+            <Card className="p-5">
+              <h3 className="font-bold text-center mb-3" style={{ color: '#2D2825' }}>إجراءات سريعة</h3>
+              <div className="space-y-2">
+                <Button variant="outline" className="w-full gap-2" onClick={() => window.print()}>
+                  <Printer className="w-4 h-4" />
+                  طباعة التذكرة
                 </Button>
-                <p className="text-xs text-gray-500 text-center">
-                  عندما ينقر المريض على "هنا" يصل مباشرة لصفحة المركز
-                </p>
+                <Button variant="outline" className="w-full gap-2" onClick={handleNewBooking}>
+                  <RotateCcw className="w-4 h-4" />
+                  حجز جديد
+                </Button>
               </div>
             </Card>
 
-            <Card className="p-5 text-center">
-              <p className="text-sm text-gray-500 mb-2">الرقم المرجعي</p>
-              <div className="w-32 h-32 mx-auto bg-gray-100 rounded-xl flex items-center justify-center">
+            {/* Save Ticket Card */}
+            <Card className="p-5 text-center border-2 border-dashed border-teal-300">
+              <p className="text-sm text-gray-500 mb-2">تذكرة الحجز</p>
+              <div className="w-32 h-32 mx-auto bg-teal-50 rounded-xl flex items-center justify-center">
                 <div className="text-center">
-                  <div className="text-3xl font-bold font-mono" style={{ color: '#5C7A6B' }}>
-                    {bookingId?.slice(-6) || '000000'}
-                  </div>
-                  <p className="text-xs text-gray-400 mt-1">أحفظ هذا الرقم</p>
+                  <CalendarCheck className="w-10 h-10 text-teal-600 mx-auto mb-2" />
+                  <p className="text-xs text-teal-600 font-semibold">احفظ هذه التذكرة</p>
+                  <p className="text-xs text-gray-400 mt-1">لإبرازها عند الطبيب</p>
                 </div>
               </div>
             </Card>
           </div>
         </div>
-
-        {/* Share on Social Media */}
-        <Card className="p-6 mt-6 border-2" style={{ borderColor: '#5C7A6B' }}>
-          <h3 className="text-lg font-bold text-center mb-4 flex items-center justify-center gap-2" style={{ color: '#2D2825' }}>
-            <Share2 className="w-5 h-5" style={{ color: '#5C7A6B' }} />
-            شارك رابط الحجز مع مرضاك
-          </h3>
-          <p className="text-sm text-gray-500 text-center mb-4">
-            انسخ الرابط وانشره على انستغرام، واتساب، تيليجرام أو أي منصة تواصل
-          </p>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-            <div className="flex-1 w-full sm:max-w-md">
-              <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600 font-mono break-all text-center" dir="ltr">
-                {typeof window !== 'undefined' ? window.location.origin : ''}/center/{centerId}/booking
-              </div>
-            </div>
-            <Button
-              className="gap-2 hover:opacity-90 text-white"
-              style={{ backgroundColor: '#5C7A6B' }}
-              onClick={() => {
-                const url = `${window.location.origin}/center/${centerId}/booking`;
-                navigator.clipboard.writeText(url).then(() => {
-                  alert('تم نسخ الرابط! الآن الصقه في منشورك على انستغرام');
-                });
-              }}
-            >
-              <span className="text-lg font-bold">هنا</span>
-              <Share2 className="w-4 h-4" />
-            </Button>
-          </div>
-          <div className="mt-4 text-center">
-            <p className="text-xs text-gray-400">
-              عندما ينقر المريض على "هنا" يصل مباشرة لصفحة الحجز
-            </p>
-          </div>
-        </Card>
 
         <div className="flex flex-col sm:flex-row gap-3 mt-8">
           <Button variant="outline" onClick={() => window.print()} className="gap-2">
