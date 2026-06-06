@@ -156,7 +156,9 @@ export default function PageB() {
               </Button>
               <Button variant="outline" onClick={() => navigate('/')} className="gap-2">
                 <ChevronLeft className="w-4 h-4" />
-                <span style={{ color: '#2c3e50' }}>Link</span><span style={{ color: '#FF5722' }}>EX</span>
+                <span className="whitespace-nowrap" dir="ltr">
+                  <span style={{ color: '#2c3e50' }}>Link</span><span style={{ color: '#FF5722' }}>EX</span>
+                </span>
               </Button>
             </div>
           </Card>
@@ -432,7 +434,9 @@ export default function PageB() {
         <div className="text-center py-8">
           <Button onClick={() => navigate('/')} className="bg-teal-600 hover:bg-teal-700 gap-2">
             <Home className="w-4 h-4" />
-            <span style={{ color: '#2c3e50' }}>Link</span><span style={{ color: '#FF5722' }}>EX</span>
+            <span className="whitespace-nowrap" dir="ltr">
+              <span style={{ color: '#2c3e50' }}>Link</span><span style={{ color: '#FF5722' }}>EX</span>
+            </span>
           </Button>
         </div>
       </div>

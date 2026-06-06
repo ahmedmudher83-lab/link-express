@@ -239,10 +239,10 @@ export default function LoginPage() {
   });
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#F8F6F0] flex items-center justify-center p-4">
       <div className="w-full max-w-md" style={{ textAlign: 'right' }}>
         {/* Back */}
-        <button onClick={() => mode === 'login' ? navigate('/') : setMode('login')} className="text-slate-400 hover:text-white mb-6 flex items-center gap-2 text-sm">
+        <button onClick={() => mode === 'login' ? navigate('/') : setMode('login')} className="text-gray-500 hover:text-gray-800 mb-6 flex items-center gap-2 text-sm">
           <span>{mode === 'login' ? 'العودة للرئيسية' : 'العودة لتسجيل الدخول'}</span>
           <ArrowLeft className="w-4 h-4" />
         </button>
@@ -254,10 +254,6 @@ export default function LoginPage() {
             <span style={{ color: '#2c3e50' }}>Link</span>
             <span style={{ color: '#FF5722' }}>EX</span>
           </h1>
-          <p className="text-slate-400 mt-2 text-sm">
-            {mode === 'login' ? 'تسجيل دخول مدير المركز أو العيادة' : 
-             mode === 'verify-otp' ? 'التحقق من الرمز' : 'إنشاء حساب جديد'}
-          </p>
         </div>
 
         {/* Success / Error Messages */}
