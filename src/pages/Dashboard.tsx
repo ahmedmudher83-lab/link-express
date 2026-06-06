@@ -50,12 +50,22 @@ export default function Dashboard() {
 
   // Department form (for centers)
   const [showDeptForm, setShowDeptForm] = useState(false);
+  // Available days for checkbox selection
+  const ALL_DAYS = ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
+
   const [deptForm, setDeptForm] = useState({
     name: '', description: '', doctorName: '', doctorEmail: '', doctorPhone: '',
-    specialty: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م',
-    fridayHours: '4:00 م - 9:00 م', consultationDuration: 15,
-    startTime: '08:00', endTime: '22:00', daysOff: ['الجمعة'], price: 0
+    specialty: '',
+    // Each department has its OWN independent schedule
+    workingDays: ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'] as string[],
+    startTime: '09:00', endTime: '14:00',
+    consultationDuration: 15,
+    daysOff: ['الجمعة'] as string[],
+    vacationDays: '' as string, // comma-separated dates YYYY-MM-DD
+    bookingWindow: 7,
+    price: 0
   });
+  const [editDeptId, setEditDeptId] = useState<string | null>(null);
 
   // Password change state
   const [showPasswordForm, setShowPasswordForm] = useState(false);
@@ -295,8 +305,14 @@ export default function Dashboard() {
     if (!cEntity || !auth.admin) return;
     if (!deptForm.name || !deptForm.doctorEmail) { showMsg('يرجى إدخال اسم القسم وإيميل الطبيب'); return; }
 
+    // Parse vacation days from comma-separated string
+    const vacationDays = deptForm.vacationDays
+      .split(',')
+      .map(d => d.trim())
+      .filter(d => d.length > 0);
+
     const newDept: Department = {
-      id: 'dept-' + Date.now(),
+      id: editDeptId || 'dept-' + Date.now(),
       name: deptForm.name,
       description: deptForm.description,
       icon: 'Stethoscope',
@@ -304,14 +320,18 @@ export default function Dashboard() {
       doctorEmail: deptForm.doctorEmail,
       doctorPhone: deptForm.doctorPhone,
       logo: '',
-      workingDays: deptForm.workingDays,
-      workingHours: deptForm.workingHours,
-      fridayHours: deptForm.fridayHours,
-      consultationDuration: deptForm.consultationDuration,
-      // Department has its own time slots - inherits from center but can be customized
-      startTime: deptForm.startTime || '08:00',
-      endTime: deptForm.endTime || '22:00',
-      daysOff: deptForm.daysOff || ['الجمعة'],
+      // ===== Department's OWN independent schedule =====
+      workingDays: deptForm.workingDays,        // array of specific days
+      startTime: deptForm.startTime || '09:00',  // department start time
+      endTime: deptForm.endTime || '14:00',      // department end time
+      consultationDuration: deptForm.consultationDuration, // per-department duration
+      daysOff: deptForm.daysOff,                 // weekly days off
+      vacationDays: vacationDays,                // emergency vacation dates
+      bookingWindow: deptForm.bookingWindow || 7, // how many upcoming days to show
+      // Legacy fields for compatibility
+      workingHours: `${deptForm.startTime} - ${deptForm.endTime}`,
+      fridayHours: '',
+      // =====
       centerId: cEntity.id,
       adminId: auth.admin.id,
       activationType: 'free',
@@ -330,13 +350,43 @@ export default function Dashboard() {
 
     // Save to both localStorage and context
     const existing = JSON.parse(localStorage.getItem('linex_departments') || '[]');
-    existing.push(newDept);
+    if (editDeptId) {
+      // Edit existing
+      const idx = existing.findIndex((d: Department) => d.id === editDeptId);
+      if (idx >= 0) existing[idx] = newDept; else existing.push(newDept);
+    } else {
+      // Create new
+      existing.push(newDept);
+    }
     localStorage.setItem('linex_departments', JSON.stringify(existing));
     addDepartment(newDept);
 
     setShowDeptForm(false);
-    setDeptForm({ name: '', description: '', doctorName: '', doctorEmail: '', doctorPhone: '', specialty: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', consultationDuration: 15, startTime: '08:00', endTime: '22:00', daysOff: ['الجمعة'], price: 0 });
-    showMsg(`تم إضافة قسم "${deptForm.name}" بنجاح!`);
+    setEditDeptId(null);
+    setDeptForm({ name: '', description: '', doctorName: '', doctorEmail: '', doctorPhone: '', specialty: '', workingDays: ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'], startTime: '09:00', endTime: '14:00', consultationDuration: 15, daysOff: ['الجمعة'], vacationDays: '', bookingWindow: 7, price: 0 });
+    showMsg(editDeptId ? `تم تعديل قسم "${deptForm.name}" بنجاح!` : `تم إضافة قسم "${deptForm.name}" بنجاح!`);
+  };
+
+  // Edit department - load data into form
+  const startEditDept = (dept: Department) => {
+    setEditDeptId(dept.id);
+    setDeptForm({
+      name: dept.name,
+      description: dept.description || '',
+      doctorName: dept.doctorName || '',
+      doctorEmail: dept.doctorEmail || '',
+      doctorPhone: dept.doctorPhone || '',
+      specialty: '',
+      workingDays: Array.isArray(dept.workingDays) ? dept.workingDays : ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'],
+      startTime: dept.startTime || '09:00',
+      endTime: dept.endTime || '14:00',
+      consultationDuration: dept.consultationDuration || 15,
+      daysOff: dept.daysOff || ['الجمعة'],
+      vacationDays: (dept.vacationDays || []).join(', '),
+      bookingWindow: dept.bookingWindow || 7,
+      price: 0
+    });
+    setShowDeptForm(true);
   };
 
   // Remove department
@@ -820,11 +870,18 @@ export default function Dashboard() {
                         {dept.doctorName && <p className="text-sm text-teal-600">{dept.doctorName}</p>}
                         {dept.doctorEmail && <p className="text-xs text-gray-500" dir="ltr"><Mail className="w-3 h-3 inline ml-1" />{dept.doctorEmail}</p>}
                         {dept.doctorPhone && <p className="text-xs text-gray-500" dir="ltr"><Phone className="w-3 h-3 inline ml-1" />{dept.doctorPhone}</p>}
-                        <p className="text-xs text-gray-400 mt-1">{dept.workingDays} | {dept.workingHours}</p>
+                        {dept.workingDays && Array.isArray(dept.workingDays) && (
+                          <p className="text-xs text-teal-600 mt-1">{dept.workingDays.join('، ')} | {dept.startTime}-{dept.endTime} | {dept.consultationDuration}د</p>
+                        )}
                       </div>
-                      <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 shrink-0" onClick={() => removeDept(dept.id)}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <div className="flex gap-1 shrink-0">
+                        <Button size="sm" variant="ghost" className="text-blue-500 hover:text-blue-700" onClick={() => startEditDept(dept)} title="تعديل القسم">
+                          <Edit3 className="w-4 h-4" />
+                        </Button>
+                        <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700" onClick={() => removeDept(dept.id)} title="حذف القسم">
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
                   </Card>
                 ))}
@@ -836,9 +893,10 @@ export default function Dashboard() {
               <Card className="p-6 border-2" style={{ borderColor: '#5C7A6B', backgroundColor: '#F8F6F0' }}>
                 <h4 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
                   <Plus className="w-5 h-5" style={{ color: '#5C7A6B' }} />
-                  إضافة قسم طبي جديد
+                  {editDeptId ? 'تعديل قسم طبي' : 'إضافة قسم طبي جديد'}
                 </h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Basic Info */}
                   <div className="space-y-1">
                     <Label className="text-xs">اسم القسم <span className="text-red-500">*</span></Label>
                     <Input value={deptForm.name} onChange={e => setDeptForm({ ...deptForm, name: e.target.value })} placeholder="قسم الأسنان" />
@@ -849,7 +907,7 @@ export default function Dashboard() {
                   </div>
                   <div className="space-y-1 md:col-span-2">
                     <Label className="text-xs">وصف القسم</Label>
-                    <Input value={deptForm.description} onChange={e => setDeptForm({ ...deptForm, description: e.target.value })} placeholder="و مختصرة عن القسم..." />
+                    <Input value={deptForm.description} onChange={e => setDeptForm({ ...deptForm, description: e.target.value })} placeholder="وصف مختصر عن القسم..." />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">اسم الطبيب المسؤول</Label>
@@ -863,42 +921,100 @@ export default function Dashboard() {
                     <Label className="text-xs">هاتف الطبيب</Label>
                     <Input value={deptForm.doctorPhone} onChange={e => setDeptForm({ ...deptForm, doctorPhone: e.target.value })} placeholder="07xxxxxxxx" dir="ltr" />
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">مدة الكشف (دقيقة)</Label>
-                    <Input type="number" min={5} max={120} value={deptForm.consultationDuration} onChange={e => setDeptForm({ ...deptForm, consultationDuration: Number(e.target.value) })} />
-                  </div>
 
-                  {/* Schedule section - each department has its own time slots */}
-                  <div className="md:col-span-2 bg-amber-50 p-4 rounded-xl border border-amber-200 mt-2">
-                    <p className="text-sm font-bold text-amber-800 mb-3">جدولة مواعيد القسم</p>
-                    <p className="text-xs text-amber-600 mb-3">
-                      كل قسم له جدول مواعيد خاص به. المركز يحدد المواعيد الأساسية وكل قسم يمكنه تعديلها.
+                  {/* ===== Department Schedule Section ===== */}
+                  <div className="md:col-span-2 bg-teal-50 p-4 rounded-xl border border-teal-200 mt-2">
+                    <p className="text-sm font-bold text-teal-800 mb-1">جدولة مواعيد القسم</p>
+                    <p className="text-xs text-teal-600 mb-3">
+                      كل قسم له جدوله الخاص المستقل. أيام الدوام وساعات الكشف خاصة بهذا القسم فقط.
                     </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+                    {/* Working Days - Checkboxes */}
+                    <div className="mb-4">
+                      <Label className="text-xs text-teal-700 mb-2 block">أيام دوام القسم <span className="text-red-500">*</span></Label>
+                      <div className="flex flex-wrap gap-2">
+                        {ALL_DAYS.map(day => (
+                          <label key={day} className={`flex items-center gap-1 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${deptForm.workingDays.includes(day) ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-600 border-gray-200 hover:border-teal-300'}`}>
+                            <input
+                              type="checkbox"
+                              className="sr-only"
+                              checked={deptForm.workingDays.includes(day)}
+                              onChange={e => {
+                                if (e.target.checked) {
+                                  setDeptForm({ ...deptForm, workingDays: [...deptForm.workingDays, day] });
+                                } else {
+                                  setDeptForm({ ...deptForm, workingDays: deptForm.workingDays.filter(d => d !== day) });
+                                }
+                              }}
+                            />
+                            <span className="text-sm">{day}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Time & Duration */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div className="space-y-1">
-                        <Label className="text-xs text-amber-700">بداية الدوام <span className="text-red-500">*</span></Label>
-                        <Input value={deptForm.startTime} onChange={e => setDeptForm({ ...deptForm, startTime: e.target.value })} placeholder="08:00" dir="ltr" />
+                        <Label className="text-xs text-teal-700">بداية الدوام</Label>
+                        <Input value={deptForm.startTime} onChange={e => setDeptForm({ ...deptForm, startTime: e.target.value })} placeholder="09:00" dir="ltr" />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs text-amber-700">نهاية الدوام <span className="text-red-500">*</span></Label>
-                        <Input value={deptForm.endTime} onChange={e => setDeptForm({ ...deptForm, endTime: e.target.value })} placeholder="22:00" dir="ltr" />
+                        <Label className="text-xs text-teal-700">نهاية الدوام</Label>
+                        <Input value={deptForm.endTime} onChange={e => setDeptForm({ ...deptForm, endTime: e.target.value })} placeholder="14:00" dir="ltr" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-teal-700">مدة الكشف (دقيقة)</Label>
+                        <Input type="number" min={5} max={120} value={deptForm.consultationDuration} onChange={e => setDeptForm({ ...deptForm, consultationDuration: Number(e.target.value) })} />
                       </div>
                     </div>
                   </div>
 
-                  <div className="space-y-1">
-                    <Label className="text-xs">أيام العمل</Label>
-                    <Input value={deptForm.workingDays} onChange={e => setDeptForm({ ...deptForm, workingDays: e.target.value })} placeholder="السبت - الخميس" />
+                  {/* Days Off */}
+                  <div className="md:col-span-2 bg-amber-50 p-4 rounded-xl border border-amber-200">
+                    <Label className="text-xs text-amber-700 mb-2 block">أيام العطلة الأسبوعية</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {ALL_DAYS.map(day => (
+                        <label key={day} className={`flex items-center gap-1 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${deptForm.daysOff.includes(day) ? 'bg-red-500 text-white border-red-500' : 'bg-white text-gray-600 border-gray-200 hover:border-red-300'}`}>
+                          <input
+                            type="checkbox"
+                            className="sr-only"
+                            checked={deptForm.daysOff.includes(day)}
+                            onChange={e => {
+                              if (e.target.checked) {
+                                setDeptForm({ ...deptForm, daysOff: [...deptForm.daysOff, day] });
+                              } else {
+                                setDeptForm({ ...deptForm, daysOff: deptForm.daysOff.filter(d => d !== day) });
+                              }
+                            }}
+                          />
+                          <span className="text-sm">{day}</span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
+
+                  {/* Vacation Days & Booking Window */}
+                  <div className="space-y-1">
+                    <Label className="text-xs">إجازات اضطرارية (تواريخ YYYY-MM-DD مفصولة بفاصلة)</Label>
+                    <Input value={deptForm.vacationDays} onChange={e => setDeptForm({ ...deptForm, vacationDays: e.target.value })} placeholder="2026-06-10, 2026-06-15" dir="ltr" />
+                    <p className="text-[10px] text-gray-400">لن يظهر القسم للحجز في هذه التواريخ</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">عدد الأيام الظاهرة للحجز</Label>
+                    <Input type="number" min={1} max={60} value={deptForm.bookingWindow} onChange={e => setDeptForm({ ...deptForm, bookingWindow: Number(e.target.value) })} />
+                    <p className="text-[10px] text-gray-400">كم يوماً مقبلاً يظهر للمريض للحجز</p>
+                  </div>
+
                   <div className="space-y-1">
                     <Label className="text-xs">سعر الكشف (دينار)</Label>
                     <Input type="number" min={0} value={deptForm.price} onChange={e => setDeptForm({ ...deptForm, price: Number(e.target.value) })} />
                   </div>
                 </div>
                 <div className="flex gap-2 mt-4">
-                  <Button variant="outline" onClick={() => setShowDeptForm(false)}>إلغاء</Button>
+                  <Button variant="outline" onClick={() => { setShowDeptForm(false); setEditDeptId(null); }}>إلغاء</Button>
                   <Button className="hover:opacity-90 gap-2" style={{ backgroundColor: '#5C7A6B' }} onClick={addDept} disabled={!deptForm.name || !deptForm.doctorEmail}>
-                    <Save className="w-4 h-4" /> إضافة القسم
+                    <Save className="w-4 h-4" /> {editDeptId ? 'حفظ التعديل' : 'إضافة القسم'}
                   </Button>
                 </div>
               </Card>
