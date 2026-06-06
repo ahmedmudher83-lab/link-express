@@ -106,6 +106,9 @@ export default function AdminDashboard() {
   const createCenter = async () => {
     if (!cForm.name || !cForm.phone) return;
     
+    // Use global trial settings
+    const trialDays = pricing.trial?.enabled ? (pricing.trial?.trialDays || 10) : 0;
+    
     // Check for duplicate username
     const username = aForm.username || 'admin_' + Date.now().toString(36).slice(-6);
     const allAdmins = await (async () => {
@@ -123,7 +126,21 @@ export default function AdminDashboard() {
     const result = addAdmin({ id: aid, fullName: aForm.fullName || 'أدمن ' + cForm.name, username, password: aForm.password || '123456', role: 'center', phone: aForm.phone || cForm.phone, email: aForm.email || cForm.email, isActive: true, createdAt: new Date().toISOString() });
     if (result) { showMsg(result); return; }
 
-    const center: Center = { id: 'center-' + Date.now(), name: cForm.name, address: cForm.address, phone: cForm.phone, email: cForm.email, logo: '', workingDays: cForm.workingDays, workingHours: cForm.workingHours, fridayHours: cForm.fridayHours, emergencyHours: cForm.emergencyHours, consultationDuration: 15, doctors: [], adminId: aid, activationType: cForm.activationType, subscriptionPrice: cForm.activationType === 'free' ? 0 : cForm.subscriptionPrice, freeTrialDays: cForm.freeTrialDays, createdAt: new Date().toISOString(), expiresAt: '', isPaid: cForm.activationType === 'free', isActive: true, status: 'active', appearanceType: 'free_trial', appearanceExpiry: new Date(Date.now() + 7 * 86400000).toISOString(), promoImages: [], promoText: '' };
+    const center: Center = { 
+      id: 'center-' + Date.now(), name: cForm.name, address: cForm.address, phone: cForm.phone, email: cForm.email, logo: '', workingDays: cForm.workingDays, workingHours: cForm.workingHours, fridayHours: cForm.fridayHours, emergencyHours: cForm.emergencyHours, consultationDuration: 15, doctors: [], adminId: aid, 
+      activationType: 'paid', 
+      subscriptionPrice: cForm.subscriptionPrice, 
+      freeTrialDays: trialDays, 
+      createdAt: new Date().toISOString(), 
+      expiresAt: new Date(Date.now() + trialDays * 86400000).toISOString(), 
+      isPaid: false, 
+      isActive: true, 
+      status: 'trial' as Center['status'], 
+      appearanceType: 'free_trial', 
+      appearanceExpiry: new Date(Date.now() + 7 * 86400000).toISOString(), 
+      promoImages: [], 
+      promoText: '' 
+    };
     addCenter(center);
     addLog({ id: 'log-' + Date.now(), action: 'create_center', adminName: auth.admin?.fullName || '', targetName: center.name, timestamp: new Date().toISOString(), details: `إنشاء مركز "${center.name}" - ${getActivationLabel(center.activationType)}${center.activationType === 'paid' ? ` - ${center.subscriptionPrice.toLocaleString()} د.ع/شهر` : ''}` });
     setShowCenterModal(false);
@@ -134,6 +151,9 @@ export default function AdminDashboard() {
 
   const createDept = async () => {
     if (!dForm.name) return;
+    
+    // Use global trial settings
+    const trialDays = pricing.trial?.enabled ? (pricing.trial?.trialDays || 10) : 0;
     
     // Check for duplicate username
     const username = aForm.username || 'admin_' + Date.now().toString(36).slice(-6);
@@ -152,7 +172,21 @@ export default function AdminDashboard() {
     const result = addAdmin({ id: aid, fullName: aForm.fullName || 'أدمن ' + dForm.name, username, password: aForm.password || '123456', role: 'department', phone: aForm.phone || '', email: aForm.email || dForm.doctorEmail, isActive: true, createdAt: new Date().toISOString() });
     if (result) { showMsg(result); return; }
 
-    const dept: Department = { id: 'dept-' + Date.now(), name: dForm.name, description: dForm.description, icon: dForm.icon, doctorName: '', doctorEmail: dForm.doctorEmail, doctorPhone: '', logo: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', consultationDuration: 15, centerId: dForm.centerId || null, adminId: aid, activationType: dForm.activationType, subscriptionPrice: dForm.activationType === 'free' ? 0 : dForm.subscriptionPrice, freeTrialDays: dForm.freeTrialDays, createdAt: new Date().toISOString(), expiresAt: '', isPaid: dForm.activationType === 'free', isActive: true, status: 'active', appearanceType: 'free_trial', appearanceExpiry: new Date(Date.now() + 7 * 86400000).toISOString(), promoImages: [], promoText: '' };
+    const dept: Department = { 
+      id: 'dept-' + Date.now(), name: dForm.name, description: dForm.description, icon: dForm.icon, doctorName: '', doctorEmail: dForm.doctorEmail, doctorPhone: '', logo: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', consultationDuration: 15, centerId: dForm.centerId || null, adminId: aid, 
+      activationType: 'paid', 
+      subscriptionPrice: dForm.subscriptionPrice, 
+      freeTrialDays: trialDays, 
+      createdAt: new Date().toISOString(), 
+      expiresAt: new Date(Date.now() + trialDays * 86400000).toISOString(), 
+      isPaid: false, 
+      isActive: true, 
+      status: 'trial' as Department['status'], 
+      appearanceType: 'free_trial', 
+      appearanceExpiry: new Date(Date.now() + 7 * 86400000).toISOString(), 
+      promoImages: [], 
+      promoText: '' 
+    };
     addDepartment(dept);
     const parent = dept.centerId ? centers.find(c => c.id === dept.centerId)?.name : 'مستقل';
     addLog({ id: 'log-' + Date.now(), action: 'create_department', adminName: auth.admin?.fullName || '', targetName: dept.name, timestamp: new Date().toISOString(), details: `إنشاء عيادة "${dept.name}" (${parent}) - ${getActivationLabel(dept.activationType)}` });
@@ -419,15 +453,15 @@ export default function AdminDashboard() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="text-lg font-bold text-gray-900">{c.name}</h4>
                         <Badge className={getStatusColor(c.status)}>{getStatusLabel(c.status)}</Badge>
-                        <Badge className={getActivationBadge(c.activationType)}>{getActivationLabel(c.activationType)}</Badge>
+                        <Badge className="bg-amber-100 text-amber-700 border-amber-200">اشتراك مدفوع</Badge>
                         <Badge variant="outline" className="text-xs">{centerDepts.length} قسم</Badge>
                       </div>
                       <div className="flex gap-4 mt-2 text-sm text-gray-500 flex-wrap"><span><MapPin className="w-3 h-3 inline" /> {c.address}</span><span dir="ltr"><Phone className="w-3 h-3 inline" /> {c.phone}</span>{c.email && <span><Mail className="w-3 h-3 inline" /> {c.email}</span>}</div>
-                      <div className="flex gap-4 mt-1 text-xs text-gray-400 flex-wrap"><span>المدير: {a?.fullName || '-'}</span><span>الاشتراك: {c.activationType === 'paid' ? c.subscriptionPrice.toLocaleString() + ' د.ع/شهر' : 'مجاني'}</span><span>فترة تجريبية: {c.freeTrialDays} يوم</span>{c.status !== 'closed' && <span>متبقي: {getRemainingDays(c.expiresAt)} يوم</span>}</div>
+                      <div className="flex gap-4 mt-1 text-xs text-gray-400 flex-wrap"><span>المدير: {a?.fullName || '-'}</span><span>الاشتراك: {c.subscriptionPrice.toLocaleString()} د.ع/شهر</span><span>فترة تجريبية: {c.freeTrialDays} يوم</span>{c.status !== 'closed' && <span>متبقي: {getRemainingDays(c.expiresAt)} يوم</span>}</div>
                     </div>
                     <div className="flex gap-2">
                       {c.status !== 'expired' && c.status !== 'closed' && <><Button size="sm" variant="outline" onClick={() => nav(`/center/${c.id}`)}><Eye className="w-4 h-4" /></Button><Button size="sm" className="bg-teal-600 hover:bg-teal-700" onClick={() => nav(`/center/${c.id}/booking`)}><ExternalLink className="w-4 h-4" /></Button></>}
-                      {c.status !== 'closed' && <>{c.activationType === 'paid' && <Button size="sm" variant="outline" className="text-amber-600" onClick={() => setRenewTarget({ type: 'center', id: c.id, name: c.name })}><RefreshCw className="w-4 h-4" /></Button>}<Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700" onClick={() => { if (confirm(`إغلاق المركز "${c.name}" وكل أقسامه المرتبطة؟`)) { closeCenter(c.id); showMsg('تم الإغلاق'); } }}><Trash2 className="w-4 h-4" /></Button></>}
+                      {c.status !== 'closed' && <><Button size="sm" variant="outline" className="text-amber-600" onClick={() => setRenewTarget({ type: 'center', id: c.id, name: c.name })}><RefreshCw className="w-4 h-4" /></Button><Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700" onClick={() => { if (confirm(`إغلاق المركز "${c.name}" وكل أقسامه المرتبطة؟`)) { closeCenter(c.id); showMsg('تم الإغلاق'); } }}><Trash2 className="w-4 h-4" /></Button></>}
                     </div>
                   </div>
                   {/* Center's Internal Departments */}
@@ -471,15 +505,15 @@ export default function AdminDashboard() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <h4 className="text-lg font-bold text-gray-900">{d.name}</h4>
                           <Badge className={getStatusColor(d.status)}>{getStatusLabel(d.status)}</Badge>
-                          <Badge className={getActivationBadge(d.activationType)}>{getActivationLabel(d.activationType)}</Badge>
+                          <Badge className="bg-amber-100 text-amber-700 border-amber-200">اشتراك مدفوع</Badge>
                           <Badge variant="outline" className="bg-purple-50 text-purple-700">مستقل</Badge>
                         </div>
                         <p className="text-sm text-gray-500 mt-1">{d.description}</p>
-                        <div className="flex gap-4 mt-1 text-xs text-gray-400 flex-wrap"><span>المدير: {a?.fullName || '-'}</span><span>الاشتراك: {d.activationType === 'paid' ? d.subscriptionPrice.toLocaleString() + ' د.ع/شهر' : 'مجاني'}</span><span>فترة تجريبية: {d.freeTrialDays} يوم</span>{d.status !== 'closed' && <span>متبقي: {getRemainingDays(d.expiresAt)} يوم</span>}</div>
+                        <div className="flex gap-4 mt-1 text-xs text-gray-400 flex-wrap"><span>المدير: {a?.fullName || '-'}</span><span>الاشتراك: {d.subscriptionPrice.toLocaleString()} د.ع/شهر</span><span>فترة تجريبية: {d.freeTrialDays} يوم</span>{d.status !== 'closed' && <span>متبقي: {getRemainingDays(d.expiresAt)} يوم</span>}</div>
                       </div>
                       <div className="flex gap-2">
                         {d.status !== 'expired' && d.status !== 'closed' && <Button size="sm" className="bg-teal-600 hover:bg-teal-700" onClick={() => nav(`/dept/${d.id}/booking`)}><ExternalLink className="w-4 h-4" /></Button>}
-                        {d.status !== 'closed' && <>{d.activationType === 'paid' && <Button size="sm" variant="outline" className="text-amber-600" onClick={() => setRenewTarget({ type: 'dept', id: d.id, name: d.name })}><RefreshCw className="w-4 h-4" /></Button>}<Button size="sm" variant="ghost" className="text-red-500" onClick={() => { if (confirm(`إغلاق العيادة "${d.name}"؟`)) { closeDepartment(d.id); showMsg('تم الإغلاق'); } }}><Trash2 className="w-4 h-4" /></Button></>}
+                        {d.status !== 'closed' && <><Button size="sm" variant="outline" className="text-amber-600" onClick={() => setRenewTarget({ type: 'dept', id: d.id, name: d.name })}><RefreshCw className="w-4 h-4" /></Button><Button size="sm" variant="ghost" className="text-red-500" onClick={() => { if (confirm(`إغلاق العيادة "${d.name}"؟`)) { closeDepartment(d.id); showMsg('تم الإغلاق'); } }}><Trash2 className="w-4 h-4" /></Button></>}
                       </div>
                     </div>
                   </Card>
@@ -491,14 +525,88 @@ export default function AdminDashboard() {
 
         {/* PRICING TAB */}
         {tab === 'pricing' && (
-          <div className="max-w-2xl">
+          <div className="max-w-2xl space-y-6">
+            {/* ===== Global Trial Settings ===== */}
+            <Card className="p-6 border-2 border-teal-200">
+              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><Clock className="w-5 h-5 text-teal-600" />الفترة التجريبية العامة</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                تحكم في الفترة التجريبية التي تُمنح لكل حساب جديد. عند تفعيلها، يظهر تنبيه للمشتركين الجدد ويحصلون على الأيام المجانية تلقائياً.
+              </p>
+              
+              <div className="space-y-4">
+                {/* Enable/Disable Toggle */}
+                <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${(pForm.trial?.enabled ?? pricing.trial?.enabled) ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-400'}`}>
+                      <Clock className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-900">تفعيل الفترة التجريبية</p>
+                      <p className="text-xs text-gray-500">منح أيام مجانية لكل حساب جديد</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const newEnabled = !(pForm.trial?.enabled ?? pricing.trial?.enabled);
+                      setPForm({ 
+                        ...pForm, 
+                        trial: { 
+                          ...(pForm.trial || pricing.trial || { trialDays: 10, showNotice: true, noticeText: '' }), 
+                          enabled: newEnabled 
+                        } 
+                      });
+                    }}
+                    className={`relative w-14 h-8 rounded-full transition-all ${(pForm.trial?.enabled ?? pricing.trial?.enabled) ? 'bg-green-500' : 'bg-gray-300'}`}
+                  >
+                    <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-all ${(pForm.trial?.enabled ?? pricing.trial?.enabled) ? 'left-7' : 'left-1'}`} />
+                  </button>
+                </div>
+
+                {/* Trial Days */}
+                {(pForm.trial?.enabled ?? pricing.trial?.enabled) && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>عدد أيام الفترة التجريبية</Label>
+                      <Input 
+                        type="number" 
+                        min={1} 
+                        max={90}
+                        value={pForm.trial?.trialDays ?? pricing.trial?.trialDays ?? 10} 
+                        onChange={e => setPForm({ 
+                          ...pForm, 
+                          trial: { 
+                            ...(pForm.trial || pricing.trial || { enabled: true, showNotice: true, noticeText: '' }), 
+                            trialDays: Number(e.target.value) 
+                          } 
+                        })} 
+                      />
+                      <p className="text-xs text-gray-400">عدد الأيام المجانية التي يحصل عليها كل مشترك جديد</p>
+                    </div>
+
+                    {/* Preview Notice */}
+                    <div className="bg-teal-50 p-4 rounded-xl border border-teal-200">
+                      <p className="text-sm font-semibold text-teal-800 mb-2">الملاحظة التي تظهر للمشتركين:</p>
+                      <p className="text-sm text-teal-700">
+                        <CheckCircle2 className="w-4 h-4 inline ml-1" />
+                        سجل اشتراكك اليوم واحصل على {(pForm.trial?.trialDays ?? pricing.trial?.trialDays ?? 10)} أيام مجاناً كفترة تجريبية
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                <Button onClick={() => { updatePricing(pForm); showMsg('تم حفظ إعدادات الفترة التجريبية'); }} className="bg-teal-600 hover:bg-teal-700 gap-2">
+                  <Save className="w-4 h-4" />حفظ إعدادات الفترة التجريبية
+                </Button>
+              </div>
+            </Card>
+
+            {/* ===== Pricing Settings ===== */}
             <Card className="p-6">
               <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><Coins className="w-5 h-5 text-amber-600" />إعدادات أسعار الاشتراكات</h3>
               <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2"><Label>سعر اشتراك المركز الطبي (ب) شهرياً (د.ع)</Label><Input type="number" value={pForm.platform?.centerMonthlyPrice || pricing.platform.centerMonthlyPrice} onChange={e => setPForm({ ...pForm, platform: { ...(pForm.platform || pricing.platform), centerMonthlyPrice: Number(e.target.value) } })} /></div>
                   <div className="space-y-2"><Label>سعر اشتراك القسم المستقل (أ) شهرياً (د.ع)</Label><Input type="number" value={pForm.platform?.deptMonthlyPrice || pricing.platform.deptMonthlyPrice} onChange={e => setPForm({ ...pForm, platform: { ...(pForm.platform || pricing.platform), deptMonthlyPrice: Number(e.target.value) } })} /></div>
-                  <div className="space-y-2"><Label>فترة تجريبية للمنصة (بالأيام)</Label><Input type="number" value={pForm.platform?.freeTrialDays || pricing.platform.freeTrialDays} onChange={e => setPForm({ ...pForm, platform: { ...(pForm.platform || pricing.platform), freeTrialDays: Number(e.target.value) } })} /><p className="text-xs text-gray-400">فترة تجريبية للاشتراك في المنصة</p></div>
                   <div className="space-y-2"><Label>سعر الظهور الإعلاني الشهري (د.ع)</Label><Input type="number" value={pForm.appearance?.monthlyPrice || pricing.appearance.monthlyPrice} onChange={e => setPForm({ ...pForm, appearance: { ...(pForm.appearance || pricing.appearance), monthlyPrice: Number(e.target.value) } })} /><p className="text-xs text-gray-400">سعر الظهور في الصفحة الرئيسية</p></div>
                   <div className="space-y-2"><Label>فترة تجريبية للظهور (بالأيام)</Label><Input type="number" value={pForm.appearance?.freeTrialDays || pricing.appearance.freeTrialDays} onChange={e => setPForm({ ...pForm, appearance: { ...(pForm.appearance || pricing.appearance), freeTrialDays: Number(e.target.value) } })} /><p className="text-xs text-gray-400">فترة تجريبية مجانية للظهور الإعلاني</p></div>
                 </div>
@@ -506,12 +614,10 @@ export default function AdminDashboard() {
               </div>
               <Separator className="my-6" />
               <h4 className="font-semibold text-gray-900 mb-3">الأسعار الحالية</h4>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-center">
                 <Card className="p-3 bg-teal-50"><p className="text-sm text-gray-500">مركز طبي (ب)</p><p className="text-xl font-bold text-teal-700">{pricing.platform.centerMonthlyPrice.toLocaleString()}</p><p className="text-xs text-gray-400">د.ع / شهر</p></Card>
                 <Card className="p-3 bg-blue-50"><p className="text-sm text-gray-500">قسم مستقل (أ)</p><p className="text-xl font-bold text-blue-700">{pricing.platform.deptMonthlyPrice.toLocaleString()}</p><p className="text-xs text-gray-400">د.ع / شهر</p></Card>
                 <Card className="p-3 bg-purple-50"><p className="text-sm text-gray-500">ظهور إعلاني</p><p className="text-xl font-bold text-purple-700">{pricing.appearance.monthlyPrice.toLocaleString()}</p><p className="text-xs text-gray-400">د.ع / شهر</p></Card>
-                <Card className="p-3 bg-amber-50"><p className="text-sm text-gray-500">تجربة منصة</p><p className="text-xl font-bold text-amber-700">{pricing.platform.freeTrialDays}</p><p className="text-xs text-gray-400">يوم</p></Card>
-                <Card className="p-3 bg-pink-50"><p className="text-sm text-gray-500">تجربة ظهور</p><p className="text-xl font-bold text-pink-700">{pricing.appearance.freeTrialDays}</p><p className="text-xs text-gray-400">يوم</p></Card>
               </div>
             </Card>
           </div>
@@ -686,20 +792,18 @@ export default function AdminDashboard() {
           <Card className="w-full max-w-lg max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4"><h3 className="text-lg font-bold flex items-center gap-2"><Building2 className="w-5 h-5 text-teal-600" />إنشاء مركز طبي جديد (ب)</h3><Button variant="ghost" size="sm" onClick={() => setShowCenterModal(false)}><X className="w-4 h-4" /></Button></div>
             <div className="space-y-4">
-              {/* نوع التفعيل */}
-              <div className="bg-gray-50 p-3 rounded-lg"><Label className="text-sm font-semibold mb-2 block">نوع التفعيل</Label>
-                <div className="flex gap-3">
-                  <button onClick={() => setCForm({ ...cForm, activationType: 'free' })} className={`flex-1 p-3 rounded-lg border-2 text-center transition-all ${cForm.activationType === 'free' ? 'border-purple-500 bg-purple-50' : 'border-gray-200'}`}>
-                    <ToggleLeft className={`w-6 h-6 mx-auto mb-1 ${cForm.activationType === 'free' ? 'text-purple-600' : 'text-gray-400'}`} />
-                    <p className="text-sm font-semibold">مجاني</p>
-                    <p className="text-xs text-gray-500">بدون اشتراك شهري</p>
-                  </button>
-                  <button onClick={() => setCForm({ ...cForm, activationType: 'paid' })} className={`flex-1 p-3 rounded-lg border-2 text-center transition-all ${cForm.activationType === 'paid' ? 'border-amber-500 bg-amber-50' : 'border-gray-200'}`}>
-                    <ToggleRight className={`w-6 h-6 mx-auto mb-1 ${cForm.activationType === 'paid' ? 'text-amber-600' : 'text-gray-400'}`} />
-                    <p className="text-sm font-semibold">مدفوع</p>
-                    <p className="text-xs text-gray-500">اشتراك شهري</p>
-                  </button>
+              {/* سعر الاشتراك + فترة تجريبية */}
+              <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-sm font-semibold">الاشتراك الشهري</Label>
+                  <Badge className="bg-amber-100 text-amber-700">{cForm.subscriptionPrice.toLocaleString()} د.ع/شهر</Badge>
                 </div>
+                {pricing.trial?.enabled && (
+                  <p className="text-xs text-teal-600 flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" />
+                    سجل اشتراكك اليوم واحصل على {pricing.trial?.trialDays || 10} أيام مجاناً كفترة تجريبية
+                  </p>
+                )}
               </div>
 
               <h4 className="font-semibold text-sm bg-gray-50 p-2 rounded">معلومات المركز الطبي</h4>
@@ -709,13 +813,6 @@ export default function AdminDashboard() {
                 <div className="space-y-1"><Label className="text-xs">رقم الموبايل <span className="text-red-500">*</span></Label><Input value={cForm.phone} onChange={e => setCForm({ ...cForm, phone: e.target.value })} placeholder="07xxxxxxxx" dir="ltr" /></div>
                 <div className="space-y-1"><Label className="text-xs">البريد الإلكتروني</Label><Input value={cForm.email} onChange={e => setCForm({ ...cForm, email: e.target.value })} placeholder="email@example.com" dir="ltr" /></div>
               </div>
-              {cForm.activationType === 'paid' && <>
-                <h4 className="font-semibold text-sm bg-gray-50 p-2 rounded">إعدادات الاشتراك المدفوع</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1"><Label className="text-xs">السعر الشهري (د.ع)</Label><Input type="number" value={cForm.subscriptionPrice} onChange={e => setCForm({ ...cForm, subscriptionPrice: Number(e.target.value) })} /></div>
-                  <div className="space-y-1"><Label className="text-xs">فترة تجريبية (أيام)</Label><Input type="number" value={cForm.freeTrialDays} onChange={e => setCForm({ ...cForm, freeTrialDays: Number(e.target.value) })} /></div>
-                </div>
-              </>}
               <Separator />
               <h4 className="font-semibold text-sm bg-gray-50 p-2 rounded">مدير المركز الطبي</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -744,21 +841,19 @@ export default function AdminDashboard() {
                 </select>
               </div>
 
-              {/* نوع التفعيل */}
+              {/* سعر الاشتراك + فترة تجريبية */}
               {!dForm.centerId && (
-                <div className="bg-gray-50 p-3 rounded-lg"><Label className="text-sm font-semibold mb-2 block">نوع التفعيل</Label>
-                  <div className="flex gap-3">
-                    <button onClick={() => setDForm({ ...dForm, activationType: 'free' })} className={`flex-1 p-3 rounded-lg border-2 text-center transition-all ${dForm.activationType === 'free' ? 'border-purple-500 bg-purple-50' : 'border-gray-200'}`}>
-                      <ToggleLeft className={`w-6 h-6 mx-auto mb-1 ${dForm.activationType === 'free' ? 'text-purple-600' : 'text-gray-400'}`} />
-                      <p className="text-sm font-semibold">مجاني</p>
-                      <p className="text-xs text-gray-500">بدون اشتراك شهري</p>
-                    </button>
-                    <button onClick={() => setDForm({ ...dForm, activationType: 'paid' })} className={`flex-1 p-3 rounded-lg border-2 text-center transition-all ${dForm.activationType === 'paid' ? 'border-amber-500 bg-amber-50' : 'border-gray-200'}`}>
-                      <ToggleRight className={`w-6 h-6 mx-auto mb-1 ${dForm.activationType === 'paid' ? 'text-amber-600' : 'text-gray-400'}`} />
-                      <p className="text-sm font-semibold">مدفوع</p>
-                      <p className="text-xs text-gray-500">اشتراك شهري</p>
-                    </button>
+                <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-sm font-semibold">الاشتراك الشهري</Label>
+                    <Badge className="bg-amber-100 text-amber-700">{dForm.subscriptionPrice.toLocaleString()} د.ع/شهر</Badge>
                   </div>
+                  {pricing.trial?.enabled && (
+                    <p className="text-xs text-teal-600 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      سجل اشتراكك اليوم واحصل على {pricing.trial?.trialDays || 10} أيام مجاناً كفترة تجريبية
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -768,13 +863,6 @@ export default function AdminDashboard() {
                 <div className="space-y-1 md:col-span-2"><Label className="text-xs">الوصف</Label><Input value={dForm.description} onChange={e => setDForm({ ...dForm, description: e.target.value })} placeholder="وصف مختصر" /></div>
                 <div className="space-y-1 md:col-span-2"><Label className="text-xs">إيميل الطبيب المسؤول</Label><Input value={dForm.doctorEmail} onChange={e => setDForm({ ...dForm, doctorEmail: e.target.value })} placeholder="doctor@email.com" dir="ltr" /></div>
               </div>
-              {dForm.activationType === 'paid' && !dForm.centerId && <>
-                <h4 className="font-semibold text-sm bg-gray-50 p-2 rounded">إعدادات الاشتراك المدفوع</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1"><Label className="text-xs">السعر الشهري (د.ع)</Label><Input type="number" value={dForm.subscriptionPrice} onChange={e => setDForm({ ...dForm, subscriptionPrice: Number(e.target.value) })} /></div>
-                  <div className="space-y-1"><Label className="text-xs">فترة تجريبية (أيام)</Label><Input type="number" value={dForm.freeTrialDays} onChange={e => setDForm({ ...dForm, freeTrialDays: Number(e.target.value) })} /></div>
-                </div>
-              </>}
               <Separator />
               <h4 className="font-semibold text-sm bg-gray-50 p-2 rounded">مدير القسم</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

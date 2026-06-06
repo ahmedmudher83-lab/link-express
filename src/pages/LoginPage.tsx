@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '@/hooks/useAuth';
+import { useLinexData } from '@/hooks/useLinexData';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +19,7 @@ type RegMethod = 'gmail' | 'phone';
 export default function LoginPage() {
   const navigate = useNavigate();
   const { login, sendOTP, verifyOTP, createAccountWithOTP, isUsernameAvailable } = useAuth();
+  const { pricing } = useLinexData();
   
   const [mode, setMode] = useState<AuthMode>('login');
   const [regMethod, setRegMethod] = useState<RegMethod>('gmail');
@@ -352,6 +354,16 @@ export default function LoginPage() {
               <p className="text-sm text-gray-500 text-center mb-4">
                 اختر طريقة التسجيل وأدخل بياناتك لاستلام رمز التحقق
               </p>
+
+              {/* Trial Period Notice */}
+              {pricing.trial?.enabled && (
+                <div className="bg-teal-50 p-3 rounded-lg border border-teal-200 mb-4">
+                  <p className="text-sm text-teal-700 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>سجل اشتراكك اليوم واحصل على <strong>{pricing.trial?.trialDays || 10} أيام</strong> مجاناً كفترة تجريبية</span>
+                  </p>
+                </div>
+              )}
 
               {/* Method Selection */}
               <div className="flex gap-2 mb-4">

@@ -135,10 +135,19 @@ export interface AppearancePricing {
   freeTrialDays: number;          // فترة تجريبية للظهور
 }
 
-// إعدادات عامة - تجمع الإعدادتين
+// إعدادات الفترة التجريبية العامة - يتحكم فيها المدير العام
+export interface GlobalTrialSettings {
+  enabled: boolean;           // هل الفترة التجريبية مفعلة
+  trialDays: number;          // عدد أيام الفترة التجريبية
+  showNotice: boolean;        // هل تظهر الملاحظة للمشتركين الجدد
+  noticeText: string;         // نص الملاحظة (اختياري - يُولد تلقائياً)
+}
+
+// إعدادات عامة - تجمع الإعدادات
 export interface PricingDefaults {
   platform: PlatformPricing;
   appearance: AppearancePricing;
+  trial: GlobalTrialSettings;  // إعدادات الفترة التجريبية العامة
 }
 
 // Payment method config - controlled by admin (ج)

@@ -31,6 +31,12 @@ const DEFAULT_PRICING: PricingDefaults = {
     monthlyPrice: 10000,
     freeTrialDays: 3,
   },
+  trial: {
+    enabled: true,
+    trialDays: 10,
+    showNotice: true,
+    noticeText: '',
+  },
 };
 
 const DEFAULT_PAYMENT_METHODS: PaymentMethodsSettings = {

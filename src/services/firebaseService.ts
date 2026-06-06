@@ -317,12 +317,18 @@ export async function seedDefaultData(): Promise<void> {
     console.log('✅ Default super admin seeded');
   }
   
-  const pricing = await getPricingSettings();
+  let pricing = await getPricingSettings();
   if (!pricing) {
-    await savePricingSettings({
+    pricing = {
       platform: { centerMonthlyPrice: 50000, deptMonthlyPrice: 25000, freeTrialDays: 7 },
       appearance: { monthlyPrice: 10000, freeTrialDays: 3 },
-    });
+      trial: { enabled: true, trialDays: 10, showNotice: true, noticeText: '' },
+    };
+    await savePricingSettings(pricing);
+  } else if (!pricing.trial) {
+    // Migrate old pricing data to include trial settings
+    pricing.trial = { enabled: true, trialDays: 10, showNotice: true, noticeText: '' };
+    await savePricingSettings(pricing);
   }
 
   const pms = await getPaymentMethods();
