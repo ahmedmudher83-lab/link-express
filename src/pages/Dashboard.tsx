@@ -21,7 +21,7 @@ type Tab = 'info' | 'schedule' | 'doctors' | 'departments' | 'visibility' | 'sha
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { auth, logout, updateAdmin } = useAuth();
+  const { auth, logout, updateAdmin, changePassword } = useAuth();
   const {
     centers, departments, getActiveAnnouncements,
     addDepartment, closeDepartment
@@ -452,25 +452,73 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Change Password Modal */}
+      {/* Change Password Modal - Secure */}
       {showPasswordForm && (
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
           <Card className="p-4 border-2 border-teal-200 bg-teal-50/30">
-            <h4 className="font-bold text-gray-900 mb-3">تغيير كلمة المرور</h4>
+            <h4 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
+              <Shield className="w-4 h-4 text-teal-600" />
+              تغيير كلمة المرور
+            </h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <Input type="password" placeholder="كلمة المرور الحالية" value={passwordForm.current} onChange={e => setPasswordForm({ ...passwordForm, current: e.target.value, error: '' })} />
-              <Input type="password" placeholder="كلمة المرور الجديدة" value={passwordForm.newPass} onChange={e => setPasswordForm({ ...passwordForm, newPass: e.target.value, error: '' })} />
-              <Input type="password" placeholder="تأكيد الجديدة" value={passwordForm.confirm} onChange={e => setPasswordForm({ ...passwordForm, confirm: e.target.value, error: '' })} />
+              <div className="space-y-1">
+                <Label className="text-xs text-gray-500">كلمة المرور الحالية</Label>
+                <Input type="password" placeholder="••••••" value={passwordForm.current} onChange={e => setPasswordForm({ ...passwordForm, current: e.target.value, error: '' })} dir="ltr" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-gray-500">كلمة المرور الجديدة</Label>
+                <Input type="password" placeholder="••••••" value={passwordForm.newPass} onChange={e => setPasswordForm({ ...passwordForm, newPass: e.target.value, error: '' })} dir="ltr" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-gray-500">تأكيد الجديدة</Label>
+                <Input type="password" placeholder="••••••" value={passwordForm.confirm} onChange={e => setPasswordForm({ ...passwordForm, confirm: e.target.value, error: '' })} dir="ltr" />
+              </div>
             </div>
-            {passwordForm.error && <p className="text-sm text-red-500 mt-2">{passwordForm.error}</p>}
+            {passwordForm.error && (
+              <div className="flex items-center gap-2 mt-2 text-sm text-red-500 bg-red-50 p-2 rounded">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                {passwordForm.error}
+              </div>
+            )}
             <div className="flex gap-2 mt-3">
-              <Button size="sm" variant="outline" onClick={() => setShowPasswordForm(false)}>إلغاء</Button>
-              <Button size="sm" className="bg-teal-600 hover:bg-teal-700" onClick={() => {
-                if (!passwordForm.current || !passwordForm.newPass) { setPasswordForm({ ...passwordForm, error: 'املأ جميع الحقول' }); return; }
-                if (passwordForm.newPass !== passwordForm.confirm) { setPasswordForm({ ...passwordForm, error: 'كلمتا المرور غير متطابقتين' }); return; }
-                if (passwordForm.current !== auth.admin?.password) { setPasswordForm({ ...passwordForm, error: 'كلمة المرور الحالية غير صحيحة' }); return; }
-                if (auth.admin) { const updated = { ...auth.admin, password: passwordForm.newPass }; updateAdmin(updated); setShowPasswordForm(false); setPasswordForm({ current: '', newPass: '', confirm: '', error: '' }); showMsg('تم تغيير كلمة المرور'); }
-              }}>حفظ</Button>
+              <Button size="sm" variant="outline" onClick={() => { setShowPasswordForm(false); setPasswordForm({ current: '', newPass: '', confirm: '', error: '' }); }}>
+                إلغاء
+              </Button>
+              <Button 
+                size="sm" 
+                className="bg-teal-600 hover:bg-teal-700 gap-2" 
+                disabled={!passwordForm.current || !passwordForm.newPass || !passwordForm.confirm}
+                onClick={async () => {
+                  if (!passwordForm.current || !passwordForm.newPass || !passwordForm.confirm) { 
+                    setPasswordForm({ ...passwordForm, error: 'املأ جميع الحقول' }); 
+                    return; 
+                  }
+                  if (passwordForm.newPass !== passwordForm.confirm) { 
+                    setPasswordForm({ ...passwordForm, error: 'كلمتا المرور غير متطابقتين' }); 
+                    return; 
+                  }
+                  if (passwordForm.newPass.length < 6) {
+                    setPasswordForm({ ...passwordForm, error: 'كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل' });
+                    return;
+                  }
+                  if (!auth.admin) {
+                    setPasswordForm({ ...passwordForm, error: 'يجب تسجيل الدخول أولاً' });
+                    return;
+                  }
+                  
+                  const result = await changePassword(auth.admin.id, passwordForm.current, passwordForm.newPass);
+                  if (result.success) {
+                    setShowPasswordForm(false); 
+                    setPasswordForm({ current: '', newPass: '', confirm: '', error: '' }); 
+                    showMsg('تم تغيير كلمة المرور بنجاح');
+                  } else {
+                    setPasswordForm({ ...passwordForm, error: result.error || 'فشل تغيير كلمة المرور' });
+                  }
+                }}
+              >
+                <Save className="w-4 h-4" />
+                حفظ
+              </Button>
             </div>
           </Card>
         </div>

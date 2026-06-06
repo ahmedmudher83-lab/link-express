@@ -1,22 +1,228 @@
 // ======== Firebase Authentication Service ========
-// Wraps Firebase Auth with localStorage fallback
+// Wraps Firebase Auth with localStorage fallback + OTP system
 
 import { auth, isConfigured } from '@/lib/firebase';
-import type { Admin } from '@/types/linex';
+import type { Admin, OTPRecord, PendingRegistration } from '@/types/linex';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
   updateProfile,
+  GoogleAuthProvider,
+  signInWithPopup,
   type User as FirebaseUser
 } from 'firebase/auth';
-import { getAdminByUsername, getLocalAuth, setLocalAuth, clearLocalAuth } from './firebaseService';
+import { getAdminByUsername, getLocalAuth, setLocalAuth, clearLocalAuth, getAllAdmins, saveAdmin, getAdminById } from './firebaseService';
 
 export interface AuthResult {
   success: boolean;
   admin?: Admin;
   error?: string;
+}
+
+// ======== OTP Storage (localStorage + Firestore hybrid) ========
+
+const OTP_STORAGE_KEY = 'linex_otp_records';
+const PENDING_REG_KEY = 'linex_pending_registrations';
+const OTP_COOLDOWN_KEY = 'linex_otp_cooldown';
+
+function lsGet<T>(key: string, fallback: T): T {
+  try { const s = localStorage.getItem(key); if (s) return JSON.parse(s); }
+  catch { /* blocked */ }
+  return fallback;
+}
+
+function lsSet(key: string, val: unknown): void {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* blocked */ }
+}
+
+// Generate 6-digit OTP
+function generateOTP(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+// Check if email is Gmail
+export function isGmail(email: string): boolean {
+  return email.toLowerCase().endsWith('@gmail.com');
+}
+
+// Validate Iraq phone number
+export function isValidIraqPhone(phone: string): boolean {
+  const clean = phone.replace(/\s/g, '');
+  return /^07[0-9]{9}$/.test(clean);
+}
+
+// Clean phone number
+export function cleanPhone(phone: string): string {
+  return phone.replace(/\s/g, '').trim();
+}
+
+// ======== OTP Operations ========
+
+/**
+ * Send OTP to email or phone
+ * In production: integrate with email/SMS service
+ * For now: simulate with localStorage + console.log
+ */
+export async function sendOTP(identifier: string, method: 'gmail' | 'phone'): Promise<{ success: boolean; otpCode?: string; error?: string; cooldown?: number }> {
+  // Check cooldown
+  const cooldowns = lsGet<Record<string, number>>(OTP_COOLDOWN_KEY, {});
+  const now = Date.now();
+  const lastSent = cooldowns[identifier] || 0;
+  const cooldownRemaining = Math.ceil((lastSent + 60000 - now) / 1000); // 60 second cooldown
+
+  if (now < lastSent + 60000) {
+    return { success: false, error: `يرجى الانتظار ${cooldownRemaining} ثانية قبل إعادة الإرسال`, cooldown: cooldownRemaining };
+  }
+
+  // Check for duplicate email/phone in existing admins
+  const admins = await getAllAdmins();
+  if (method === 'gmail') {
+    const existing = admins.find(a => a.email.toLowerCase() === identifier.toLowerCase());
+    if (existing) return { success: false, error: 'هذا البريد الإلكتروني مسجل مسبقاً' };
+  } else {
+    const clean = cleanPhone(identifier);
+    const existing = admins.find(a => cleanPhone(a.phone) === clean);
+    if (existing) return { success: false, error: 'هذا الرقم مسجل مسبقاً' };
+  }
+
+  // Generate OTP
+  const otpCode = generateOTP();
+  const expiresAt = new Date(now + 10 * 60 * 1000).toISOString(); // 10 minutes expiry
+
+  // Store OTP record
+  const records = lsGet<OTPRecord[]>(OTP_STORAGE_KEY, []);
+  const newRecord: OTPRecord = {
+    id: 'otp-' + Date.now(),
+    email: method === 'gmail' ? identifier : undefined,
+    phone: method === 'phone' ? cleanPhone(identifier) : undefined,
+    code: otpCode,
+    expiresAt,
+    verified: false,
+    attempts: 0,
+    createdAt: new Date().toISOString(),
+  };
+  records.push(newRecord);
+  lsSet(OTP_STORAGE_KEY, records);
+
+  // Set cooldown
+  cooldowns[identifier] = now;
+  lsSet(OTP_COOLDOWN_KEY, cooldowns);
+
+  // In production: Send actual email/SMS here
+  console.log(`📧 OTP for ${identifier}: ${otpCode}`);
+
+  return { success: true, otpCode }; // otpCode returned for demo/testing purposes
+}
+
+/**
+ * Verify OTP code
+ */
+export async function verifyOTP(identifier: string, code: string, method: 'gmail' | 'phone'): Promise<{ success: boolean; error?: string }> {
+  const records = lsGet<OTPRecord[]>(OTP_STORAGE_KEY, []);
+  const now = new Date().toISOString();
+
+  const record = records.find(r => {
+    if (method === 'gmail') return r.email?.toLowerCase() === identifier.toLowerCase();
+    return r.phone === cleanPhone(identifier);
+  });
+
+  if (!record) {
+    return { success: false, error: 'لم يتم إرسال رمز OTP لهذا الحساب' };
+  }
+
+  if (record.verified) {
+    return { success: false, error: 'الرمز مستخدم مسبقاً' };
+  }
+
+  if (now > record.expiresAt) {
+    return { success: false, error: 'انتهت صلاحية الرمز' };
+  }
+
+  if (record.attempts >= 5) {
+    return { success: false, error: 'تم استنفاد المحاولات. اطلب رمزاً جديداً' };
+  }
+
+  // Increment attempts
+  record.attempts += 1;
+
+  if (record.code !== code) {
+    lsSet(OTP_STORAGE_KEY, records);
+    return { success: false, error: `الرمز غير صحيح. محاولة ${record.attempts} من 5` };
+  }
+
+  // Mark as verified
+  record.verified = true;
+  lsSet(OTP_STORAGE_KEY, records);
+
+  return { success: true };
+}
+
+/**
+ * Check if identifier (email/phone) is verified
+ */
+export function isIdentifierVerified(identifier: string, method: 'gmail' | 'phone'): boolean {
+  const records = lsGet<OTPRecord[]>(OTP_STORAGE_KEY, []);
+  return records.some(r => {
+    if (method === 'gmail') return r.email?.toLowerCase() === identifier.toLowerCase() && r.verified;
+    return r.phone === cleanPhone(identifier) && r.verified;
+  });
+}
+
+/**
+ * Create account after OTP verification
+ */
+export async function createAccountWithOTP(
+  fullName: string,
+  identifier: string,
+  method: 'gmail' | 'phone',
+  username: string,
+  password: string,
+  role: 'center' | 'department' = 'center'
+): Promise<AuthResult> {
+  // Check if OTP was verified
+  if (!isIdentifierVerified(identifier, method)) {
+    return { success: false, error: 'يرجى التحقق من الرمز أولاً' };
+  }
+
+  // Check duplicate username
+  const existingUsername = await getAdminByUsername(username);
+  if (existingUsername) {
+    return { success: false, error: 'اسم المستخدم مستخدم مسبقاً. اختر اسماً آخر.' };
+  }
+
+  // Check duplicate identifier in admins
+  const admins = await getAllAdmins();
+  if (method === 'gmail') {
+    const existing = admins.find(a => a.email.toLowerCase() === identifier.toLowerCase());
+    if (existing) return { success: false, error: 'هذا البريد مسجل مسبقاً' };
+  } else {
+    const clean = cleanPhone(identifier);
+    const existing = admins.find(a => cleanPhone(a.phone) === clean);
+    if (existing) return { success: false, error: 'هذا الرقم مسجل مسبقاً' };
+  }
+
+  // Create admin
+  const admin: Admin = {
+    id: 'admin-' + Date.now(),
+    fullName,
+    username,
+    password,
+    role,
+    phone: method === 'phone' ? cleanPhone(identifier) : '',
+    email: method === 'gmail' ? identifier.toLowerCase() : '',
+    isActive: true,
+    createdAt: new Date().toISOString(),
+  };
+
+  await saveAdmin(admin);
+
+  // Auto-login
+  const authState = { isAuthenticated: true, admin };
+  setLocalAuth(authState);
+
+  return { success: true, admin };
 }
 
 // ======== Firebase Auth Operations ========
@@ -44,6 +250,27 @@ export async function firebaseLogin(email: string, password: string): Promise<Au
     return { success: true };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Login failed';
+    return { success: false, error: msg };
+  }
+}
+
+export async function firebaseGoogleSignIn(): Promise<AuthResult> {
+  if (!isConfigured || !auth) {
+    return { success: false, error: 'Firebase not configured' };
+  }
+  try {
+    const provider = new GoogleAuthProvider();
+    const result = await signInWithPopup(auth, provider);
+    const user = result.user;
+    
+    if (!user.email?.toLowerCase().endsWith('@gmail.com')) {
+      await signOut(auth);
+      return { success: false, error: 'يُسمح فقط بحسابات Gmail' };
+    }
+
+    return { success: true };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Google sign-in failed';
     return { success: false, error: msg };
   }
 }
@@ -104,6 +331,38 @@ export function getCurrentAdmin(): { isAuthenticated: boolean; admin: Admin | nu
   return getLocalAuth();
 }
 
+// ======== Password Change (Secure) ========
+
+export async function changePassword(
+  adminId: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ success: boolean; error?: string }> {
+  const admin = await getAdminById(adminId);
+  if (!admin) {
+    return { success: false, error: 'الحساب غير موجود' };
+  }
+
+  if (admin.password !== currentPassword) {
+    return { success: false, error: 'كلمة المرور الحالية غير صحيحة' };
+  }
+
+  if (newPassword.length < 6) {
+    return { success: false, error: 'كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل' };
+  }
+
+  const updated = { ...admin, password: newPassword };
+  await saveAdmin(updated);
+
+  // Update local auth
+  const currentAuth = getLocalAuth();
+  if (currentAuth.isAuthenticated && currentAuth.admin?.id === adminId) {
+    setLocalAuth({ isAuthenticated: true, admin: updated });
+  }
+
+  return { success: true };
+}
+
 // ======== Auth State Listener ========
 
 export function subscribeToAuth(callback: (auth: { isAuthenticated: boolean; admin: Admin | null }) => void): () => void {
@@ -134,4 +393,11 @@ export function subscribeToAuth(callback: (auth: { isAuthenticated: boolean; adm
   return () => {
     unsubFirebase();
   };
+}
+
+// ======== Check username availability ========
+
+export async function isUsernameAvailable(username: string): Promise<boolean> {
+  const admin = await getAdminByUsername(username);
+  return !admin;
 }

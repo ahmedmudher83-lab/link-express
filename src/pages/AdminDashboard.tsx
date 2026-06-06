@@ -17,13 +17,22 @@ import {
   FileText, Lock, User,
   Phone, Mail, Clock, MapPin, Star, ExternalLink,
   CheckCircle2, Coins, CalendarX, RefreshCw,
-  DollarSign, Shield, ToggleLeft, ToggleRight, CreditCard, Smartphone, Banknote
+  DollarSign, Shield, ToggleLeft, ToggleRight, CreditCard, Smartphone, Banknote,
+  AlertCircle
 } from 'lucide-react';
 
 type Tab = 'overview' | 'centers' | 'departments' | 'pricing' | 'payments' | 'announcements' | 'logs';
 
+// ======== Super Admin Protection ========
+const SUPER_ADMIN_EMAIL = 'admin@linex.com';
+const SUPER_ADMIN_ID = 'super-admin-linex';
+
+function isSuperAdminProtected(adminId: string, adminEmail?: string): boolean {
+  return adminId === SUPER_ADMIN_ID || adminEmail === SUPER_ADMIN_EMAIL;
+}
+
 export default function AdminDashboard() {
-  const { auth, login, logout, addAdmin, getAdminById } = useAuth();
+  const { auth, login, logout, addAdmin, getAdminById, updateAdmin, changePassword } = useAuth();
   const {
     centers, departments, logs, pricing,
     addCenter, closeCenter, addDepartment, closeDepartment,
@@ -72,6 +81,10 @@ export default function AdminDashboard() {
   // Admin form
   const [aForm, setAForm] = useState({ fullName: '', username: '', password: '', phone: '', email: '' });
 
+  // Super admin password change
+  const [showSuperAdminPasswordForm, setShowSuperAdminPasswordForm] = useState(false);
+  const [superPwForm, setSuperPwForm] = useState({ current: '', newPass: '', confirm: '', error: '' });
+
   // Pricing form
   const [pForm, setPForm] = useState({ ...pricing });
   const [annForm, setAnnForm] = useState({ message: '', showToAll: true });
@@ -90,10 +103,25 @@ export default function AdminDashboard() {
     else setLoginForm(p => ({ ...p, error: 'اسم المستخدم أو كلمة المرور غير صحيحة' }));
   };
 
-  const createCenter = () => {
+  const createCenter = async () => {
     if (!cForm.name || !cForm.phone) return;
+    
+    // Check for duplicate username
+    const username = aForm.username || 'admin_' + Date.now().toString(36).slice(-6);
+    const allAdmins = await (async () => {
+      const stored = localStorage.getItem('linex_admins');
+      if (stored) return JSON.parse(stored);
+      return [];
+    })();
+    const existingUser = allAdmins.find((a: { username: string }) => a.username === username);
+    if (existingUser) {
+      showMsg('اسم المستخدم "' + username + '" مستخدم مسبقاً');
+      return;
+    }
+    
     const aid = 'admin-' + Date.now();
-    addAdmin({ id: aid, fullName: aForm.fullName || 'أدمن ' + cForm.name, username: aForm.username || 'admin_' + Date.now().toString(36).slice(-6), password: aForm.password || '123456', role: 'center', phone: aForm.phone || cForm.phone, email: aForm.email || cForm.email, isActive: true, createdAt: new Date().toISOString() });
+    const result = addAdmin({ id: aid, fullName: aForm.fullName || 'أدمن ' + cForm.name, username, password: aForm.password || '123456', role: 'center', phone: aForm.phone || cForm.phone, email: aForm.email || cForm.email, isActive: true, createdAt: new Date().toISOString() });
+    if (result) { showMsg(result); return; }
 
     const center: Center = { id: 'center-' + Date.now(), name: cForm.name, address: cForm.address, phone: cForm.phone, email: cForm.email, logo: '', workingDays: cForm.workingDays, workingHours: cForm.workingHours, fridayHours: cForm.fridayHours, emergencyHours: cForm.emergencyHours, consultationDuration: 15, doctors: [], adminId: aid, activationType: cForm.activationType, subscriptionPrice: cForm.activationType === 'free' ? 0 : cForm.subscriptionPrice, freeTrialDays: cForm.freeTrialDays, createdAt: new Date().toISOString(), expiresAt: '', isPaid: cForm.activationType === 'free', isActive: true, status: 'active', appearanceType: 'free_trial', appearanceExpiry: new Date(Date.now() + 7 * 86400000).toISOString(), promoImages: [], promoText: '' };
     addCenter(center);
@@ -104,10 +132,25 @@ export default function AdminDashboard() {
     showMsg('تم إنشاء المركز الطبي بنجاح');
   };
 
-  const createDept = () => {
+  const createDept = async () => {
     if (!dForm.name) return;
+    
+    // Check for duplicate username
+    const username = aForm.username || 'admin_' + Date.now().toString(36).slice(-6);
+    const allAdmins = await (async () => {
+      const stored = localStorage.getItem('linex_admins');
+      if (stored) return JSON.parse(stored);
+      return [];
+    })();
+    const existingUser = allAdmins.find((a: { username: string }) => a.username === username);
+    if (existingUser) {
+      showMsg('اسم المستخدم "' + username + '" مستخدم مسبقاً');
+      return;
+    }
+    
     const aid = 'admin-' + Date.now();
-    addAdmin({ id: aid, fullName: aForm.fullName || 'أدمن ' + dForm.name, username: aForm.username || 'admin_' + Date.now().toString(36).slice(-6), password: aForm.password || '123456', role: 'department', phone: aForm.phone || '', email: aForm.email || dForm.doctorEmail, isActive: true, createdAt: new Date().toISOString() });
+    const result = addAdmin({ id: aid, fullName: aForm.fullName || 'أدمن ' + dForm.name, username, password: aForm.password || '123456', role: 'department', phone: aForm.phone || '', email: aForm.email || dForm.doctorEmail, isActive: true, createdAt: new Date().toISOString() });
+    if (result) { showMsg(result); return; }
 
     const dept: Department = { id: 'dept-' + Date.now(), name: dForm.name, description: dForm.description, icon: dForm.icon, doctorName: '', doctorEmail: dForm.doctorEmail, doctorPhone: '', logo: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', consultationDuration: 15, centerId: dForm.centerId || null, adminId: aid, activationType: dForm.activationType, subscriptionPrice: dForm.activationType === 'free' ? 0 : dForm.subscriptionPrice, freeTrialDays: dForm.freeTrialDays, createdAt: new Date().toISOString(), expiresAt: '', isPaid: dForm.activationType === 'free', isActive: true, status: 'active', appearanceType: 'free_trial', appearanceExpiry: new Date(Date.now() + 7 * 86400000).toISOString(), promoImages: [], promoText: '' };
     addDepartment(dept);
@@ -161,11 +204,128 @@ export default function AdminDashboard() {
           </div>
           <div className="flex items-center gap-3">
             {msg && <span className="text-sm text-green-600 bg-green-50 px-3 py-1 rounded-lg flex items-center gap-1"><CheckCircle2 className="w-4 h-4" />{msg}</span>}
-            <div className="hidden sm:flex items-center gap-2 text-sm text-gray-600 bg-gray-100 px-3 py-1.5 rounded-lg"><Shield className="w-4 h-4" /><span>{auth.admin?.fullName}</span><Badge variant="secondary" className="text-xs">{auth.admin?.role === 'super' ? 'مدير عام' : 'أدمن'}</Badge></div>
+            <div className="hidden sm:flex items-center gap-2 text-sm text-gray-600 bg-gray-100 px-3 py-1.5 rounded-lg">
+              <Shield className="w-4 h-4" />
+              <span>{auth.admin?.fullName}</span>
+              <Badge variant="secondary" className="text-xs">{auth.admin?.role === 'super' ? 'مدير عام' : 'أدمن'}</Badge>
+              {auth.admin?.email === SUPER_ADMIN_EMAIL && (
+                <Badge className="bg-amber-100 text-amber-700 text-xs">حساب محمي</Badge>
+              )}
+            </div>
+            {/* Super Admin Password Change Button */}
+            {auth.admin?.role === 'super' && (
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setShowSuperAdminPasswordForm(!showSuperAdminPasswordForm)}
+                className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 gap-1"
+              >
+                <Lock className="w-4 h-4" />
+                <span className="hidden sm:inline">الباسورد</span>
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={async () => { await logout(); }} className="text-red-500 hover:text-red-700 hover:bg-red-50 gap-1"><LogOut className="w-4 h-4" /><span className="hidden sm:inline">خروج</span></Button>
           </div>
         </div>
       </header>
+
+      {/* Super Admin Password Change Modal */}
+      {showSuperAdminPasswordForm && auth.admin?.role === 'super' && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
+          <Card className="p-4 border-2 border-amber-200 bg-amber-50/30">
+            <h4 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
+              <Lock className="w-4 h-4 text-amber-600" />
+              تغيير باسورد المدير العام
+              <Badge className="bg-amber-100 text-amber-700 text-xs">حساب محمي</Badge>
+            </h4>
+            <p className="text-xs text-gray-500 mb-3">
+              هذا الحساب ({SUPER_ADMIN_EMAIL}) هو حساب ثابت ولا يمكن حذفه. يمكنك تغيير باسورد فقط.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs text-gray-500">الباسورد الحالي</Label>
+                <Input 
+                  type="password" 
+                  placeholder="••••••" 
+                  value={superPwForm.current} 
+                  onChange={e => setSuperPwForm({ ...superPwForm, current: e.target.value, error: '' })} 
+                  dir="ltr" 
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-gray-500">الباسورد الجديد</Label>
+                <Input 
+                  type="password" 
+                  placeholder="••••••" 
+                  value={superPwForm.newPass} 
+                  onChange={e => setSuperPwForm({ ...superPwForm, newPass: e.target.value, error: '' })} 
+                  dir="ltr" 
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-gray-500">تأكيد الجديد</Label>
+                <Input 
+                  type="password" 
+                  placeholder="••••••" 
+                  value={superPwForm.confirm} 
+                  onChange={e => setSuperPwForm({ ...superPwForm, confirm: e.target.value, error: '' })} 
+                  dir="ltr" 
+                />
+              </div>
+            </div>
+            {superPwForm.error && (
+              <div className="flex items-center gap-2 mt-2 text-sm text-red-500 bg-red-50 p-2 rounded">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                {superPwForm.error}
+              </div>
+            )}
+            <div className="flex gap-2 mt-3">
+              <Button 
+                size="sm" 
+                variant="outline" 
+                onClick={() => { setShowSuperAdminPasswordForm(false); setSuperPwForm({ current: '', newPass: '', confirm: '', error: '' }); }}
+              >
+                إلغاء
+              </Button>
+              <Button 
+                size="sm" 
+                className="bg-amber-600 hover:bg-amber-700 gap-2"
+                disabled={!superPwForm.current || !superPwForm.newPass || !superPwForm.confirm}
+                onClick={async () => {
+                  if (!superPwForm.current || !superPwForm.newPass || !superPwForm.confirm) {
+                    setSuperPwForm({ ...superPwForm, error: 'املأ جميع الحقول' });
+                    return;
+                  }
+                  if (superPwForm.newPass !== superPwForm.confirm) {
+                    setSuperPwForm({ ...superPwForm, error: 'كلمتا المرور غير متطابقتين' });
+                    return;
+                  }
+                  if (superPwForm.newPass.length < 6) {
+                    setSuperPwForm({ ...superPwForm, error: 'الباسورد الجديد يجب أن يكون 6 أحرف على الأقل' });
+                    return;
+                  }
+                  if (!auth.admin) {
+                    setSuperPwForm({ ...superPwForm, error: 'يجب تسجيل الدخول' });
+                    return;
+                  }
+                  
+                  const result = await changePassword(auth.admin.id, superPwForm.current, superPwForm.newPass);
+                  if (result.success) {
+                    setShowSuperAdminPasswordForm(false);
+                    setSuperPwForm({ current: '', newPass: '', confirm: '', error: '' });
+                    showMsg('تم تغيير باسورد المدير العام بنجاح');
+                  } else {
+                    setSuperPwForm({ ...superPwForm, error: result.error || 'فشل تغيير الباسورد' });
+                  }
+                }}
+              >
+                <Save className="w-4 h-4" />
+                حفظ
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Stats */}

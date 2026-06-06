@@ -185,6 +185,41 @@ export interface AuthState {
   admin: Admin | null;
 }
 
+// ===== OTP System Types =====
+
+export type RegistrationMethod = 'gmail' | 'phone';
+
+export interface OTPRecord {
+  id: string;
+  email?: string;
+  phone?: string;
+  code: string;
+  expiresAt: string;
+  verified: boolean;
+  attempts: number;
+  createdAt: string;
+}
+
+export interface PendingRegistration {
+  id: string;
+  fullName: string;
+  email?: string;
+  phone?: string;
+  method: RegistrationMethod;
+  otpCode: string;
+  otpExpiresAt: string;
+  verified: boolean;
+  createdAt: string;
+}
+
+// ===== Password Change Request =====
+
+export interface PasswordChangeRequest {
+  adminId: string;
+  currentPassword: string;
+  newPassword: string;
+}
+
 export function computeStatus(
   isActive: boolean,
   createdAt: string,
