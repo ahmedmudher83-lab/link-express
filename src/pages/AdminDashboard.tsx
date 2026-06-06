@@ -77,10 +77,11 @@ export default function AdminDashboard() {
   const [annForm, setAnnForm] = useState({ message: '', showToAll: true });
   const [renewMonths, setRenewMonths] = useState(1);
 
-  // Stats
+  // Stats - independent clinics only (not center departments)
   const activeCenters = getActiveCenters();
-  const activeDepts = getActiveDepartments();
-  const totalRevenue = centers.reduce((s, c) => s + (c.isPaid ? c.subscriptionPrice : 0), 0) + departments.filter(d => !d.centerId).reduce((s, d) => s + (d.isPaid ? d.subscriptionPrice : 0), 0);
+  const independentDepts = departments.filter(d => !d.centerId);
+  const activeDepts = independentDepts.filter(d => d.isActive);
+  const totalRevenue = centers.reduce((s, c) => s + (c.isPaid ? c.subscriptionPrice : 0), 0) + independentDepts.reduce((s, d) => s + (d.isPaid ? d.subscriptionPrice : 0), 0);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -203,120 +204,128 @@ export default function AdminDashboard() {
           ))}
         </div>
 
-        {/* OVERVIEW */}
+        {/* OVERVIEW - Stats only, NO center/dept details */}
         {tab === 'overview' && (
           <div className="space-y-6">
             <div className="flex gap-3 flex-wrap">
-              <Button onClick={() => setShowCenterModal(true)} className="bg-teal-600 hover:bg-teal-700 gap-2"><Plus className="w-4 h-4" />إنشاء مركز طبي (ب)</Button>
-              <Button onClick={() => setShowDeptModal(true)} className="bg-blue-600 hover:bg-blue-700 gap-2"><Plus className="w-4 h-4" />إنشاء عيادة جديدة (أ)</Button>
+              <Button onClick={() => { setTab('centers'); setShowCenterModal(true); }} className="bg-teal-600 hover:bg-teal-700 gap-2"><Plus className="w-4 h-4" />إنشاء مركز طبي (ب)</Button>
+              <Button onClick={() => { setTab('departments'); setShowDeptModal(true); }} className="bg-blue-600 hover:bg-blue-700 gap-2"><Plus className="w-4 h-4" />إنشاء عيادة جديدة (أ)</Button>
               <Button variant="outline" onClick={() => { refreshStatuses(); showMsg('تم تحديث الحالات'); }} className="gap-2"><RefreshCw className="w-4 h-4" />تحديث الحالات</Button>
             </div>
-            {/* Centers */}
-            <div>
-              <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2"><Building2 className="w-5 h-5 text-teal-600" />المراكز الطبية</h3>
-              {centers.length === 0 ? <Card className="p-8 text-center text-gray-500"><Building2 className="w-12 h-12 mx-auto text-gray-300 mb-3" /><p>لا يوجد مراكز طبية مسجلة</p></Card> : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {centers.map(c => { const a = getAdminById(c.adminId); const rem = getRemainingDays(c.expiresAt); return (
-                    <Card key={c.id} className={`p-4 border-2 ${c.status === 'expired' ? 'border-red-200 bg-red-50' : 'hover:shadow-lg border-transparent hover:border-teal-200'} transition-all`}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-bold text-gray-900">{c.name}</h4>
-                        <Badge className={getStatusColor(c.status)}>{getStatusLabel(c.status)}</Badge>
-                      </div>
-                      <Badge className={getActivationBadge(c.activationType) + ' mb-1'}>{getActivationLabel(c.activationType)}</Badge>
-                      <p className="text-sm text-gray-500"><Phone className="w-3 h-3 inline ml-1" />{c.phone}</p>
-                      <p className="text-xs text-gray-400 mt-1">المدير: {a?.fullName || '-'} | {c.activationType === 'paid' ? c.subscriptionPrice.toLocaleString() + ' د.ع/شهر' : 'مجاني'}{rem > 0 && c.status !== 'closed' ? ` | متبقي ${rem} يوم` : ''}</p>
-                      <div className="flex gap-2 mt-3">
-                        {c.status !== 'expired' && c.status !== 'closed' && (<div className="flex gap-2"><Button size="sm" variant="outline" className="gap-1 text-xs" onClick={() => nav(`/center/${c.id}`)}><Eye className="w-3 h-3" /> عرض</Button><Button size="sm" className="gap-1 text-xs bg-teal-600 hover:bg-teal-700" onClick={() => nav(`/center/${c.id}/booking`)}><ExternalLink className="w-3 h-3" /> صفحة الحجز</Button></div>)}
-                        {c.status !== 'closed' && (<div className="flex gap-2"><Button size="sm" variant="outline" className="gap-1 text-xs text-purple-600" onClick={() => { setPricingTarget({ type: 'center', id: c.id, name: c.name }); setCustomPrices({ platformPrice: c.customPlatformPrice || c.subscriptionPrice, platformTrial: c.customPlatformTrial || c.freeTrialDays, appearancePrice: c.customAppearancePrice || pricing.appearance.monthlyPrice, appearanceTrial: c.customAppearanceTrial || pricing.appearance.freeTrialDays }); }}><Coins className="w-3 h-3" /> تعديل الأسعار</Button>{c.activationType === 'paid' && <Button size="sm" variant="outline" className="gap-1 text-xs text-amber-600" onClick={() => setRenewTarget({ type: 'center', id: c.id, name: c.name })}><RefreshCw className="w-3 h-3" /> تجديد</Button>}<Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => { if (confirm(`إغلاق المركز "${c.name}" وكل أقسامه؟`)) { closeCenter(c.id); showMsg('تم الإغلاق'); } }}><Trash2 className="w-4 h-4" /></Button></div>)}
-                      </div>
-                    </Card>
-                  ); })}
+            {/* Summary Cards Only - no details */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Card className="p-6 border-2 border-teal-200">
+                <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2"><Building2 className="w-5 h-5 text-teal-600" />ملخص المراكز الطبية</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="text-center p-3 bg-teal-50 rounded-lg">
+                    <p className="text-2xl font-bold text-teal-700">{centers.length}</p>
+                    <p className="text-xs text-teal-600">إجمالي المراكز</p>
+                  </div>
+                  <div className="text-center p-3 bg-green-50 rounded-lg">
+                    <p className="text-2xl font-bold text-green-700">{centers.filter(c => c.status === 'active').length}</p>
+                    <p className="text-xs text-green-600">نشطة</p>
+                  </div>
                 </div>
-              )}
-            </div>
-            {/* Depts */}
-            <div>
-              <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2"><Briefcase className="w-5 h-5 text-blue-600" />العيادات</h3>
-              {departments.length === 0 ? <Card className="p-8 text-center text-gray-500"><Briefcase className="w-12 h-12 mx-auto text-gray-300 mb-3" /><p>لا يوجد أقسام مسجلة</p></Card> : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {departments.map(d => { const a = getAdminById(d.adminId); const p = d.centerId ? getCenterById(d.centerId) : null; const rem = getRemainingDays(d.expiresAt); return (
-                    <Card key={d.id} className={`p-4 border-2 ${d.status === 'expired' ? 'border-red-200 bg-red-50' : 'hover:shadow-lg border-transparent hover:border-blue-200'} transition-all`}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-bold text-gray-900">{d.name}</h4>
-                        <Badge className={getStatusColor(d.status)}>{getStatusLabel(d.status)}</Badge>
-                      </div>
-                      <Badge className={getActivationBadge(d.activationType) + ' mb-1'}>{getActivationLabel(d.activationType)}</Badge>
-                      {p && <p className="text-xs text-blue-600">تابع لمركز: {p.name}</p>}
-                      {!p && <p className="text-xs text-purple-600">قسم مستقل</p>}
-                      <p className="text-sm text-gray-500">{d.description}</p>
-                      <p className="text-xs text-gray-400 mt-1">المدير: {a?.fullName || '-'} | {d.activationType === 'paid' ? d.subscriptionPrice.toLocaleString() + ' د.ع/شهر' : 'مجاني'}{rem > 0 && d.status !== 'closed' ? ` | متبقي ${rem} يوم` : ''}</p>
-                      <div className="flex gap-2 mt-3">
-                        {d.status !== 'expired' && d.status !== 'closed' && <Button size="sm" className="gap-1 text-xs bg-teal-600 hover:bg-teal-700" onClick={() => d.centerId ? nav(`/center/${d.centerId}/booking`) : nav(`/dept/${d.id}/booking`)}><ExternalLink className="w-3 h-3" /> فتح صفحة الحجز</Button>}
-                        {d.status !== 'closed' && (<div className="flex gap-2"><Button size="sm" variant="outline" className="gap-1 text-xs text-purple-600" onClick={() => { setPricingTarget({ type: 'dept', id: d.id, name: d.name }); setCustomPrices({ platformPrice: d.customPlatformPrice || d.subscriptionPrice, platformTrial: d.customPlatformTrial || d.freeTrialDays, appearancePrice: d.customAppearancePrice || pricing.appearance.monthlyPrice, appearanceTrial: d.customAppearanceTrial || pricing.appearance.freeTrialDays }); }}><Coins className="w-3 h-3" /> تعديل الأسعار</Button>{d.activationType === 'paid' && <Button size="sm" variant="outline" className="gap-1 text-xs text-amber-600" onClick={() => setRenewTarget({ type: 'dept', id: d.id, name: d.name })}><RefreshCw className="w-3 h-3" /> تجديد</Button>}<Button size="sm" variant="ghost" className="text-red-500" onClick={() => { if (confirm(`إغلاق القسم "${d.name}"؟`)) { closeDepartment(d.id); showMsg('تم الإغلاق'); } }}><Trash2 className="w-4 h-4" /></Button></div>)}
-                      </div>
-                    </Card>
-                  ); })}
+                <p className="text-xs text-gray-400 mt-3 text-center">اذهب لقسم "المراكز الطبية (ب)" للتفاصيل</p>
+              </Card>
+              <Card className="p-6 border-2 border-blue-200">
+                <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2"><Briefcase className="w-5 h-5 text-blue-600" />ملsummary العيادات المستقلة</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="text-center p-3 bg-blue-50 rounded-lg">
+                    <p className="text-2xl font-bold text-blue-700">{departments.filter(d => !d.centerId).length}</p>
+                    <p className="text-xs text-blue-600">إجمالي العيادات</p>
+                  </div>
+                  <div className="text-center p-3 bg-green-50 rounded-lg">
+                    <p className="text-2xl font-bold text-green-700">{departments.filter(d => !d.centerId && d.status === 'active').length}</p>
+                    <p className="text-xs text-green-600">نشطة</p>
+                  </div>
                 </div>
-              )}
+                <p className="text-xs text-gray-400 mt-3 text-center">اذهب لقسم "العيادات (أ)" للتفاصيل</p>
+              </Card>
             </div>
           </div>
         )}
 
-        {/* CENTERS TAB */}
+        {/* CENTERS TAB - Shows centers with their internal departments */}
         {tab === 'centers' && (
           <div>
             <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-gray-900">المراكز الطبية (صفحة ب) - {centers.length}</h3><Button onClick={() => setShowCenterModal(true)} className="bg-teal-600 hover:bg-teal-700 gap-2"><Plus className="w-4 h-4" />إنشاء مركز طبي</Button></div>
-            <div className="space-y-3">
-              {centers.map(c => { const a = getAdminById(c.adminId); const dc = getDepartmentsByCenter(c.id).length; return (
+            <div className="space-y-4">
+              {centers.map(c => { const a = getAdminById(c.adminId); const centerDepts = getDepartmentsByCenter(c.id); return (
                 <Card key={c.id} className={`p-5 ${c.status === 'expired' ? 'border-red-200 bg-red-50/50' : ''}`}>
+                  {/* Center Header */}
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="text-lg font-bold text-gray-900">{c.name}</h4>
                         <Badge className={getStatusColor(c.status)}>{getStatusLabel(c.status)}</Badge>
                         <Badge className={getActivationBadge(c.activationType)}>{getActivationLabel(c.activationType)}</Badge>
-                        <Badge variant="outline" className="text-xs">{dc} قسم</Badge>
+                        <Badge variant="outline" className="text-xs">{centerDepts.length} قسم</Badge>
                       </div>
                       <div className="flex gap-4 mt-2 text-sm text-gray-500 flex-wrap"><span><MapPin className="w-3 h-3 inline" /> {c.address}</span><span dir="ltr"><Phone className="w-3 h-3 inline" /> {c.phone}</span>{c.email && <span><Mail className="w-3 h-3 inline" /> {c.email}</span>}</div>
                       <div className="flex gap-4 mt-1 text-xs text-gray-400 flex-wrap"><span>المدير: {a?.fullName || '-'}</span><span>الاشتراك: {c.activationType === 'paid' ? c.subscriptionPrice.toLocaleString() + ' د.ع/شهر' : 'مجاني'}</span><span>فترة تجريبية: {c.freeTrialDays} يوم</span>{c.status !== 'closed' && <span>متبقي: {getRemainingDays(c.expiresAt)} يوم</span>}</div>
                     </div>
                     <div className="flex gap-2">
-                      {c.status !== 'expired' && c.status !== 'closed' && <Button size="sm" variant="outline" onClick={() => nav(`/center/${c.id}`)}><Eye className="w-4 h-4" /></Button>}
+                      {c.status !== 'expired' && c.status !== 'closed' && <><Button size="sm" variant="outline" onClick={() => nav(`/center/${c.id}`)}><Eye className="w-4 h-4" /></Button><Button size="sm" className="bg-teal-600 hover:bg-teal-700" onClick={() => nav(`/center/${c.id}/booking`)}><ExternalLink className="w-4 h-4" /></Button></>}
                       {c.status !== 'closed' && <>{c.activationType === 'paid' && <Button size="sm" variant="outline" className="text-amber-600" onClick={() => setRenewTarget({ type: 'center', id: c.id, name: c.name })}><RefreshCw className="w-4 h-4" /></Button>}<Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700" onClick={() => { if (confirm(`إغلاق المركز "${c.name}" وكل أقسامه المرتبطة؟`)) { closeCenter(c.id); showMsg('تم الإغلاق'); } }}><Trash2 className="w-4 h-4" /></Button></>}
                     </div>
                   </div>
+                  {/* Center's Internal Departments */}
+                  {centerDepts.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <p className="text-sm font-semibold text-gray-700 mb-3">أقسام المركز الداخلية:</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {centerDepts.map(dept => (
+                          <div key={dept.id} className={`p-3 rounded-lg border ${dept.status === 'expired' ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-gray-50'}`}>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="font-semibold text-gray-900 text-sm">{dept.name}</p>
+                                <p className="text-xs text-gray-500">{dept.doctorName || 'بدون طبيب'}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge className={getStatusColor(dept.status) + ' text-xs'}>{getStatusLabel(dept.status)}</Badge>
+                                {dept.status !== 'expired' && dept.status !== 'closed' && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => nav(`/center/${c.id}/booking`)}>حجز</Button>}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </Card>
               ); })}
             </div>
           </div>
         )}
 
-        {/* DEPTS TAB */}
+        {/* DEPTS TAB - Independent clinics only (no center departments) */}
         {tab === 'departments' && (
           <div>
-            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-gray-900">العيادات (صفحة أ) - {departments.length}</h3><Button onClick={() => setShowDeptModal(true)} className="bg-blue-600 hover:bg-blue-700 gap-2"><Plus className="w-4 h-4" />إنشاء عيادة جديدة</Button></div>
-            <div className="space-y-3">
-              {departments.map(d => { const a = getAdminById(d.adminId); const p = d.centerId ? getCenterById(d.centerId) : null; return (
-                <Card key={d.id} className={`p-5 ${d.status === 'expired' ? 'border-red-200 bg-red-50/50' : ''}`}>
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="text-lg font-bold text-gray-900">{d.name}</h4>
-                        <Badge className={getStatusColor(d.status)}>{getStatusLabel(d.status)}</Badge>
-                        <Badge className={getActivationBadge(d.activationType)}>{getActivationLabel(d.activationType)}</Badge>
-                        {p ? <Badge variant="outline" className="bg-blue-50 text-blue-700">{p.name}</Badge> : <Badge variant="outline" className="bg-purple-50 text-purple-700">مستقل</Badge>}
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-gray-900">العيادات المستقلة (صفحة أ) - {departments.filter(d => !d.centerId).length}</h3><Button onClick={() => setShowDeptModal(true)} className="bg-blue-600 hover:bg-blue-700 gap-2"><Plus className="w-4 h-4" />إنشاء عيادة جديدة</Button></div>
+            {departments.filter(d => !d.centerId).length === 0 ? <Card className="p-8 text-center text-gray-500"><Briefcase className="w-12 h-12 mx-auto text-gray-300 mb-3" /><p>لا يوجد عيادات مستقلة مسجلة</p></Card> : (
+              <div className="space-y-3">
+                {departments.filter(d => !d.centerId).map(d => { const a = getAdminById(d.adminId); return (
+                  <Card key={d.id} className={`p-5 ${d.status === 'expired' ? 'border-red-200 bg-red-50/50' : ''}`}>
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="text-lg font-bold text-gray-900">{d.name}</h4>
+                          <Badge className={getStatusColor(d.status)}>{getStatusLabel(d.status)}</Badge>
+                          <Badge className={getActivationBadge(d.activationType)}>{getActivationLabel(d.activationType)}</Badge>
+                          <Badge variant="outline" className="bg-purple-50 text-purple-700">مستقل</Badge>
+                        </div>
+                        <p className="text-sm text-gray-500 mt-1">{d.description}</p>
+                        <div className="flex gap-4 mt-1 text-xs text-gray-400 flex-wrap"><span>المدير: {a?.fullName || '-'}</span><span>الاشتراك: {d.activationType === 'paid' ? d.subscriptionPrice.toLocaleString() + ' د.ع/شهر' : 'مجاني'}</span><span>فترة تجريبية: {d.freeTrialDays} يوم</span>{d.status !== 'closed' && <span>متبقي: {getRemainingDays(d.expiresAt)} يوم</span>}</div>
                       </div>
-                      <p className="text-sm text-gray-500 mt-1">{d.description}</p>
-                      <div className="flex gap-4 mt-1 text-xs text-gray-400 flex-wrap"><span>المدير: {a?.fullName || '-'}</span><span>الاشتراك: {d.activationType === 'paid' ? d.subscriptionPrice.toLocaleString() + ' د.ع/شهر' : 'مجاني'}</span><span>فترة تجريبية: {d.freeTrialDays} يوم</span>{d.status !== 'closed' && <span>متبقي: {getRemainingDays(d.expiresAt)} يوم</span>}</div>
+                      <div className="flex gap-2">
+                        {d.status !== 'expired' && d.status !== 'closed' && <Button size="sm" className="bg-teal-600 hover:bg-teal-700" onClick={() => nav(`/dept/${d.id}/booking`)}><ExternalLink className="w-4 h-4" /></Button>}
+                        {d.status !== 'closed' && <>{d.activationType === 'paid' && <Button size="sm" variant="outline" className="text-amber-600" onClick={() => setRenewTarget({ type: 'dept', id: d.id, name: d.name })}><RefreshCw className="w-4 h-4" /></Button>}<Button size="sm" variant="ghost" className="text-red-500" onClick={() => { if (confirm(`إغلاق العيادة "${d.name}"؟`)) { closeDepartment(d.id); showMsg('تم الإغلاق'); } }}><Trash2 className="w-4 h-4" /></Button></>}
+                      </div>
                     </div>
-                    <div className="flex gap-2">
-                      {d.status !== 'expired' && d.status !== 'closed' && <Button size="sm" className="bg-teal-600 hover:bg-teal-700" onClick={() => d.centerId ? nav(`/center/${d.centerId}/booking`) : nav(`/dept/${d.id}/booking`)}><ExternalLink className="w-4 h-4" /></Button>}
-                      {d.status !== 'closed' && <>{d.activationType === 'paid' && <Button size="sm" variant="outline" className="text-amber-600" onClick={() => setRenewTarget({ type: 'dept', id: d.id, name: d.name })}><RefreshCw className="w-4 h-4" /></Button>}<Button size="sm" variant="ghost" className="text-red-500" onClick={() => { if (confirm(`إغلاق القسم "${d.name}"؟`)) { closeDepartment(d.id); showMsg('تم الإغلاق'); } }}><Trash2 className="w-4 h-4" /></Button></>}
-                    </div>
-                  </div>
-                </Card>
-              ); })}
-            </div>
+                  </Card>
+                ); })}
+              </div>
+            )}
           </div>
         )}
 
@@ -700,7 +709,7 @@ export default function AdminDashboard() {
             </div>
           </Card>
         </div>
-         )}
+      )}
     </div>
   );
 }
