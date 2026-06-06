@@ -6,12 +6,25 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import html2canvas from 'html2canvas';
+import { useRef, useEffect } from 'react';
 import {
   CalendarCheck, Clock, Stethoscope, Phone,
-  MapPin, Printer, RotateCcw, CheckCircle2, AlertCircle,
+  MapPin, Download, RotateCcw, CheckCircle2, AlertCircle,
   CalendarDays, Award, Star, Home, Building2,
   Mail, ChevronLeft, Users
 } from 'lucide-react';
+
+// Helper: get Arabic day name from date string
+function getArabicDay(dateStr: string): string {
+  if (!dateStr) return '';
+  try {
+    const days = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
+    return days[d.getDay()];
+  } catch { return ''; }
+}
 
 export default function PageB() {
   const { centerId } = useParams<{ centerId: string }>();
@@ -20,11 +33,55 @@ export default function PageB() {
   const { settings } = useSettings();
   const { getCenterById, getDepartmentsByCenter } = useLinexData();
   const center = centerId ? getCenterById(centerId) : null;
+  const ticketRef = useRef<HTMLDivElement>(null);
+  const autoSaved = useRef(false);
+
+  // Auto-save ticket as image when confirmed
+  useEffect(() => {
+    if (ticketRef.current && !autoSaved.current && booking.patient?.fullName) {
+      autoSaved.current = true;
+      // Small delay to ensure rendering is complete
+      const timer = setTimeout(async () => {
+        try {
+          const canvas = await html2canvas(ticketRef.current!, {
+            backgroundColor: '#ffffff',
+            scale: 2,
+            useCORS: true,
+          });
+          const link = document.createElement('a');
+          link.download = `LinkEX-حجز-${booking.patient?.fullName || 'موعد'}.png`;
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+        } catch (err) {
+          console.error('Auto-save ticket failed:', err);
+        }
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [booking]);
 
   const handleNewBooking = () => {
     resetBooking();
     if (centerId) navigate(`/center/${centerId}/booking`);
     else navigate('/');
+  };
+
+  // Manual save ticket as image
+  const handleSaveTicket = async () => {
+    if (!ticketRef.current) return;
+    try {
+      const canvas = await html2canvas(ticketRef.current, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+      });
+      const link = document.createElement('a');
+      link.download = `LinkEX-حجز-${booking.patient?.fullName || 'موعد'}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (err) {
+      console.error('Save ticket failed:', err);
+    }
   };
 
   // If center not found
@@ -139,26 +196,33 @@ export default function PageB() {
       </div>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 -mt-6 pb-12">
-        {/* Patient Ticket Card - Name + Date + Time */}
+        {/* Patient Ticket Card - Name + Day + Date + Time */}
+        <div ref={ticketRef}>
         <Card className="p-6 mb-4 border-2 border-teal-200 shadow-xl bg-white">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex-1">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center sm:text-right">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-center sm:text-right">
                 <div>
                   <p className="text-sm text-gray-500 mb-1">اسم المريض</p>
-                  <p className="text-xl font-bold text-teal-700">
+                  <p className="text-lg font-bold text-teal-700">
                     {booking.patient?.fullName || 'غير محدد'}
                   </p>
                 </div>
                 <div>
+                  <p className="text-sm text-gray-500 mb-1">يوم الحجز</p>
+                  <p className="text-lg font-bold text-teal-700">
+                    {getArabicDay(booking.date) || 'غير محدد'}
+                  </p>
+                </div>
+                <div>
                   <p className="text-sm text-gray-500 mb-1">تاريخ الحجز</p>
-                  <p className="text-xl font-bold text-teal-700">
+                  <p className="text-lg font-bold text-teal-700">
                     {booking.date || 'غير محدد'}
                   </p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 mb-1">وقت الحجز</p>
-                  <p className="text-xl font-bold text-teal-700" dir="ltr">
+                  <p className="text-lg font-bold text-teal-700" dir="ltr">
                     {booking.time || 'غير محدد'}
                   </p>
                 </div>
@@ -170,6 +234,7 @@ export default function PageB() {
             </Badge>
           </div>
         </Card>
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 space-y-4">
@@ -343,51 +408,33 @@ export default function PageB() {
               </ul>
             </Card>
 
-            {/* Quick Actions */}
+            {/* Save Ticket */}
             <Card className="p-5">
-              <h3 className="font-bold text-center mb-3" style={{ color: '#2D2825' }}>إجراءات سريعة</h3>
+              <h3 className="font-bold text-center mb-3" style={{ color: '#2D2825' }}>تذكرة الحجز</h3>
+              <p className="text-xs text-gray-500 text-center mb-3">
+                تم حفظ التذكرة تلقائياً. يمكنك إعادة الحفظ يدوياً.
+              </p>
               <div className="space-y-2">
-                <Button variant="outline" className="w-full gap-2" onClick={() => window.print()}>
-                  <Printer className="w-4 h-4" />
-                  طباعة التذكرة
+                <Button variant="outline" className="w-full gap-2" onClick={handleSaveTicket}>
+                  <Download className="w-4 h-4" />
+                  حفظ التذكرة كصورة
                 </Button>
-                <Button variant="outline" className="w-full gap-2" onClick={handleNewBooking}>
+                                <Button variant="outline" className="w-full gap-2" onClick={handleNewBooking}>
                   <RotateCcw className="w-4 h-4" />
                   حجز جديد
                 </Button>
               </div>
             </Card>
-
-            {/* Save Ticket Card */}
-            <Card className="p-5 text-center border-2 border-dashed border-teal-300">
-              <p className="text-sm text-gray-500 mb-2">تذكرة الحجز</p>
-              <div className="w-32 h-32 mx-auto bg-teal-50 rounded-xl flex items-center justify-center">
-                <div className="text-center">
-                  <CalendarCheck className="w-10 h-10 text-teal-600 mx-auto mb-2" />
-                  <p className="text-xs text-teal-600 font-semibold">احفظ هذه التذكرة</p>
-                  <p className="text-xs text-gray-400 mt-1">لإبرازها عند الطبيب</p>
-                </div>
-              </div>
-            </Card>
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 mt-8">
-          <Button variant="outline" onClick={() => window.print()} className="gap-2">
-            <Printer className="w-4 h-4" />
-            طباعة
-          </Button>
-          <Button variant="outline" onClick={handleNewBooking} className="gap-2">
-            <RotateCcw className="w-4 h-4" />
-            حجز آخر
-          </Button>
-          <Button onClick={() => navigate('/')} className="bg-teal-600 hover:bg-teal-700 gap-2 flex-1">
+        {/* Footer */}
+        <div className="text-center py-8">
+          <Button onClick={() => navigate('/')} className="bg-teal-600 hover:bg-teal-700 gap-2">
             <Home className="w-4 h-4" />
             <span style={{ color: '#2c3e50' }}>Link</span><span style={{ color: '#FF5722' }}>EX</span>
           </Button>
         </div>
-
-        {/* Manager Login Section */}
       </div>
     </div>
   );
