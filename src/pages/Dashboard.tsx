@@ -24,7 +24,8 @@ export default function Dashboard() {
   const { auth, logout, updateAdmin, changePassword } = useAuth();
   const {
     centers, departments, getActiveAnnouncements,
-    addDepartment, closeDepartment
+    addDepartment, closeDepartment,
+    appearanceVisibility, shouldShowAppearanceTab, pricing,
   } = useLinexData();
 
   // Get managed entity
@@ -70,6 +71,10 @@ export default function Dashboard() {
   // Password change state
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ current: '', newPass: '', confirm: '', error: '' });
+
+  // Appearance days state
+  const [appearanceDays, setAppearanceDays] = useState(7);
+  const [appearanceStartDate, setAppearanceStartDate] = useState(new Date().toISOString().split('T')[0]);
 
   const showMsg = (t: string) => { setMsg(t); setTimeout(() => setMsg(''), 4000); };
 
@@ -601,7 +606,7 @@ export default function Dashboard() {
             { id: 'schedule' as Tab, label: 'أوقات العمل والجدولة', icon: Clock },
             ...(isCenter ? [{ id: 'doctors' as Tab, label: 'الأطباء والتخصصات', icon: Stethoscope }] : []),
             ...(isCenter ? [{ id: 'departments' as Tab, label: 'الأقسام الطبية', icon: Hospital }] : []),
-            { id: 'visibility' as Tab, label: 'الظهور والإعلان', icon: Eye },
+            ...(shouldShowAppearanceTab(entityType) ? [{ id: 'visibility' as Tab, label: 'الظهور والإعلان', icon: Eye }] : []),
             { id: 'share' as Tab, label: 'مشاركة الرابط', icon: ExternalLink },
           ].map(t => (
             <Button
@@ -1130,7 +1135,48 @@ export default function Dashboard() {
                   >
                     <Megaphone className={`w-8 h-8 mx-auto mb-2 ${(isCenter ? cEntity?.appearanceType : dEntity?.appearanceType) === 'paid' ? 'text-amber-600' : 'text-gray-400'}`} />
                     <p className="font-bold">اشتراك شهري</p>
-                    <p className="text-xs text-gray-500">ظهور لمدة 30 يوم</p>
+                    <p className="text-xs text-gray-500">{pricing.appearance.monthlyPrice.toLocaleString()} د.ع / 30 يوم</p>
+                  </button>
+
+                  {/* Limited Days Option */}
+                  <button
+                    onClick={async () => {
+                      if (appearanceDays < 1) { showMsg('اختر عدد أيام أولاً'); return; }
+                      const start = new Date(appearanceStartDate);
+                      const expiry = new Date(start.getTime() + appearanceDays * 86400000).toISOString();
+                      const updated = isCenter
+                        ? { ...cEntity!, appearanceType: 'paid' as const, appearanceExpiry: expiry }
+                        : { ...dEntity!, appearanceType: 'paid' as const, appearanceExpiry: expiry };
+                      isCenter ? setEntity(updated as Center) : setEntity(updated as Department);
+                      isCenter ? await saveCenter(updated as Center) : await saveDepartment(updated as Department);
+                      showMsg(`تم تفعيل الظهور لمدة ${appearanceDays} يوم`);
+                    }}
+                    className="p-4 rounded-xl border-2 border-gray-200 text-center hover:border-amber-300 transition-all"
+                  >
+                    <CalendarDays className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                    <p className="font-bold">عدد أيام محدود</p>
+                    <div className="space-y-2 mt-2" onClick={e => e.stopPropagation()}>
+                      <div className="flex gap-2">
+                        <Input
+                          type="date"
+                          value={appearanceStartDate}
+                          onChange={e => setAppearanceStartDate(e.target.value)}
+                          className="text-xs h-8"
+                        />
+                        <Input
+                          type="number"
+                          min={1}
+                          max={365}
+                          value={appearanceDays}
+                          onChange={e => setAppearanceDays(Number(e.target.value))}
+                          placeholder="أيام"
+                          className="text-xs h-8 w-20 text-center"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        {(appearanceDays * (pricing.appearance.dailyPrice || 500)).toLocaleString()} د.ع
+                      </p>
+                    </div>
                   </button>
                 </div>
               </div>

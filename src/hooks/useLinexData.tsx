@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import type { Center, Department, ActivityLog, PricingDefaults, PaymentMethodsSettings, PaymentMethodConfig, AdminAnnouncement } from '@/types/linex';
+import type { Center, Department, ActivityLog, PricingDefaults, PaymentMethodsSettings, PaymentMethodConfig, AdminAnnouncement, AppearanceVisibilitySettings, FeaturedEntity, AppearanceTarget } from '@/types/linex';
 import { computeStatus } from '@/types/linex';
 import {
   getAllCenters,
@@ -19,6 +19,11 @@ import {
   saveAnnouncement,
   deleteAnnouncement,
   seedDefaultData,
+  getAppearanceVisibility,
+  saveAppearanceVisibility,
+  getFeaturedEntities,
+  saveFeaturedEntity,
+  deleteFeaturedEntity,
 } from '@/services/firebaseService';
 
 const DEFAULT_PRICING: PricingDefaults = {
@@ -29,6 +34,7 @@ const DEFAULT_PRICING: PricingDefaults = {
   },
   appearance: {
     monthlyPrice: 10000,
+    dailyPrice: 500,
     freeTrialDays: 3,
   },
   trial: {
@@ -96,6 +102,15 @@ interface LinexDataContext {
   addAnnouncement: (a: AdminAnnouncement) => void;
   removeAnnouncement: (id: string) => void;
   getActiveAnnouncements: (adminId: string) => AdminAnnouncement[];
+  // Appearance visibility (super admin controlled)
+  appearanceVisibility: AppearanceVisibilitySettings;
+  updateAppearanceVisibility: (s: AppearanceVisibilitySettings) => void;
+  shouldShowAppearanceTab: (entityType: 'center' | 'department') => boolean;
+  // Featured entities (manual display by super admin)
+  featuredEntities: FeaturedEntity[];
+  addFeaturedEntity: (e: FeaturedEntity) => void;
+  removeFeaturedEntity: (id: string) => void;
+  getActiveFeatured: () => FeaturedEntity[];
   // Refresh
   refreshStatuses: () => void;
   refreshData: () => Promise<void>;
@@ -111,6 +126,8 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
   const [pricing, setPricing] = useState<PricingDefaults>(DEFAULT_PRICING);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodsSettings>(DEFAULT_PAYMENT_METHODS);
   const [announcements, setAnnouncements] = useState<AdminAnnouncement[]>([]);
+  const [appearanceVisibility, setAppearanceVisibility] = useState<AppearanceVisibilitySettings>({ enabled: false, target: 'all' });
+  const [featuredEntities, setFeaturedEntities] = useState<FeaturedEntity[]>([]);
 
   // Initial load from Firestore (primary) with localStorage fallback
   useEffect(() => {
@@ -120,13 +137,15 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
       try {
         // Try Firestore FIRST (real database)
         await seedDefaultData();
-        const [c, d, l, p, pm, anns] = await Promise.all([
+        const [c, d, l, p, pm, anns, av, fe] = await Promise.all([
           getAllCenters(),
           getAllDepartments(),
           getAllLogs(),
           getPricingSettings(),
           getPaymentMethods(),
           getAnnouncements(),
+          getAppearanceVisibility(),
+          getFeaturedEntities(),
         ]);
 
         if (!mounted) return;
@@ -139,6 +158,8 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
           if (p) setPricing(p);
           if (pm) setPaymentMethods(pm);
           setAnnouncements(anns);
+          if (av) setAppearanceVisibility(av);
+          setFeaturedEntities(fe);
           setLoading(false);
           return;
         }
@@ -408,6 +429,38 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
     });
   }, [announcements]);
 
+  // ======== Appearance Visibility ========
+
+  const updateAppearanceVisibility = useCallback((s: AppearanceVisibilitySettings) => {
+    saveAppearanceVisibility(s).catch(() => {});
+    setAppearanceVisibility(s);
+  }, []);
+
+  const shouldShowAppearanceTab = useCallback((entityType: 'center' | 'department'): boolean => {
+    if (!appearanceVisibility.enabled) return false;
+    if (appearanceVisibility.target === 'all') return true;
+    if (appearanceVisibility.target === 'centers' && entityType === 'center') return true;
+    if (appearanceVisibility.target === 'departments' && entityType === 'department') return true;
+    return false;
+  }, [appearanceVisibility]);
+
+  // ======== Featured Entities ========
+
+  const addFeaturedEntity = useCallback((e: FeaturedEntity) => {
+    saveFeaturedEntity(e).catch(() => {});
+    setFeaturedEntities(prev => [e, ...prev]);
+  }, []);
+
+  const removeFeaturedEntity = useCallback((id: string) => {
+    deleteFeaturedEntity(id).catch(() => {});
+    setFeaturedEntities(prev => prev.filter(f => f.id !== id));
+  }, []);
+
+  const getActiveFeatured = useCallback((): FeaturedEntity[] => {
+    const now = new Date().toISOString();
+    return featuredEntities.filter(f => f.startDate <= now && f.endDate >= now);
+  }, [featuredEntities]);
+
   const value = {
     loading,
     centers,
@@ -436,6 +489,14 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
     addAnnouncement,
     removeAnnouncement,
     getActiveAnnouncements,
+    // Appearance
+    appearanceVisibility,
+    updateAppearanceVisibility,
+    shouldShowAppearanceTab,
+    featuredEntities,
+    addFeaturedEntity,
+    removeFeaturedEntity,
+    getActiveFeatured,
     refreshStatuses,
   };
 

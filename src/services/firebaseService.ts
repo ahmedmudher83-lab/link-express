@@ -17,6 +17,7 @@ const COLLECTIONS = {
   LOGS: 'logs',
   SETTINGS: 'settings',
   ANNOUNCEMENTS: 'announcements',
+  FEATURED: 'featured',
 };
 
 // ======== Safe localStorage wrappers ========
@@ -296,6 +297,57 @@ export async function deleteAnnouncement(id: string): Promise<void> {
   lsSet('linex_announcements', anns);
 }
 
+// ======== Appearance Visibility Settings ========
+
+import type { AppearanceVisibilitySettings, FeaturedEntity } from '@/types/linex';
+
+export async function getAppearanceVisibility(): Promise<AppearanceVisibilitySettings | null> {
+  if (isConfigured && db) {
+    const snap = await getDoc(doc(db, COLLECTIONS.SETTINGS, 'appearanceVisibility'));
+    return snap.exists() ? snap.data() as AppearanceVisibilitySettings : null;
+  }
+  return lsGet<AppearanceVisibilitySettings | null>('linex_appearance_visibility', null);
+}
+
+export async function saveAppearanceVisibility(settings: AppearanceVisibilitySettings): Promise<void> {
+  if (isConfigured && db) {
+    await setDoc(doc(db, COLLECTIONS.SETTINGS, 'appearanceVisibility'), settings);
+    return;
+  }
+  lsSet('linex_appearance_visibility', settings);
+}
+
+// ======== Featured Entities (Manual display by super admin) ========
+
+export async function getFeaturedEntities(): Promise<FeaturedEntity[]> {
+  if (isConfigured && db) {
+    const snap = await getDocs(query(collection(db, COLLECTIONS.FEATURED), orderBy('createdAt', 'desc')));
+    return snap.docs.map(d => ({ ...d.data(), id: d.id } as FeaturedEntity));
+  }
+  return lsGet<FeaturedEntity[]>('linex_featured', []);
+}
+
+export async function saveFeaturedEntity(entity: FeaturedEntity): Promise<void> {
+  if (isConfigured && db) {
+    await setDoc(doc(db, COLLECTIONS.FEATURED, entity.id), entity);
+    return;
+  }
+  const entities = await getFeaturedEntities();
+  const idx = entities.findIndex(e => e.id === entity.id);
+  if (idx >= 0) entities[idx] = entity;
+  else entities.push(entity);
+  lsSet('linex_featured', entities);
+}
+
+export async function deleteFeaturedEntity(id: string): Promise<void> {
+  if (isConfigured && db) {
+    await deleteDoc(doc(db, COLLECTIONS.FEATURED, id));
+    return;
+  }
+  const entities = (await getFeaturedEntities()).filter(e => e.id !== id);
+  lsSet('linex_featured', entities);
+}
+
 // ======== Seed default super admin ========
 
 const DEFAULT_SUPER_ADMIN: Admin = {
@@ -321,14 +373,25 @@ export async function seedDefaultData(): Promise<void> {
   if (!pricing) {
     pricing = {
       platform: { centerMonthlyPrice: 50000, deptMonthlyPrice: 25000, freeTrialDays: 7 },
-      appearance: { monthlyPrice: 10000, freeTrialDays: 3 },
+      appearance: { monthlyPrice: 10000, dailyPrice: 500, freeTrialDays: 3 },
       trial: { enabled: true, trialDays: 10, showNotice: true, noticeText: '' },
     };
     await savePricingSettings(pricing);
-  } else if (!pricing.trial) {
-    // Migrate old pricing data to include trial settings
-    pricing.trial = { enabled: true, trialDays: 10, showNotice: true, noticeText: '' };
+  } else {
+    // Migrate old pricing data
+    if (!pricing.trial) {
+      pricing.trial = { enabled: true, trialDays: 10, showNotice: true, noticeText: '' };
+    }
+    if (!pricing.appearance.dailyPrice) {
+      pricing.appearance.dailyPrice = 500;
+    }
     await savePricingSettings(pricing);
+  }
+
+  // Seed default appearance visibility
+  const av = await getAppearanceVisibility();
+  if (!av) {
+    await saveAppearanceVisibility({ enabled: false, target: 'all' });
   }
 
   const pms = await getPaymentMethods();

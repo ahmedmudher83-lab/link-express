@@ -132,7 +132,30 @@ export interface PlatformPricing {
 // إعدادات رقم (2) - الظهور الإعلاني
 export interface AppearancePricing {
   monthlyPrice: number;           // سعر الظهور الإعلاني شهرياً
+  dailyPrice: number;             // سعر الظهور الإعلاني يومياً
   freeTrialDays: number;          // فترة تجريبية للظهور
+}
+
+// إعدادات ظهور ميزة الاشتراك الإعلاني للعملاء - يتحكم فيها المدير العام
+export type AppearanceTarget = 'all' | 'centers' | 'departments';
+
+export interface AppearanceVisibilitySettings {
+  enabled: boolean;           // هل ميزة الظهور الإعلاني مفعلة للعملاء
+  target: AppearanceTarget;   // لمن تظهر: الكل / مراكز فقط / عيادات فقط
+}
+
+// كيان مُظهر يدوياً في الواجهة من قبل المدير العام
+export interface FeaturedEntity {
+  id: string;
+  entityId: string;           // centerId أو deptId
+  entityType: 'center' | 'department';
+  name: string;
+  startDate: string;          // تاريخ بداية الظهور
+  endDate: string;            // تاريخ نهاية الظهور
+  isPaid: boolean;            // هل مدفوع أم مجاني
+  price: number;              // السعر (0 إذا مجاني)
+  isManual: boolean;          // هل إظهار يدوي من المدير العام
+  createdAt: string;
 }
 
 // إعدادات الفترة التجريبية العامة - يتحكم فيها المدير العام

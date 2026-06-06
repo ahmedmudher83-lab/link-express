@@ -21,7 +21,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 
-type Tab = 'overview' | 'centers' | 'departments' | 'pricing' | 'payments' | 'announcements' | 'logs';
+type Tab = 'overview' | 'centers' | 'departments' | 'pricing' | 'payments' | 'announcements' | 'logs' | 'appearance';
 
 // ======== Super Admin Protection ========
 const SUPER_ADMIN_EMAIL = 'admin@linex.com';
@@ -38,10 +38,12 @@ export default function AdminDashboard() {
     addCenter, closeCenter, addDepartment, closeDepartment,
     updatePricing, renewCenter, renewDepartment,
     getCenterById, getDepartmentsByCenter,
-    getActiveCenters, getActiveDepartments,
+    getActiveCenters, getActiveDepartments, getIndependentDepartments,
     addLog, refreshStatuses,
     paymentMethods, togglePaymentMethod, updatePaymentMethods,
     announcements, addAnnouncement, removeAnnouncement,
+    appearanceVisibility, updateAppearanceVisibility,
+    featuredEntities, addFeaturedEntity, removeFeaturedEntity,
   } = useLinexData();
   const nav = useNavigate();
 
@@ -89,6 +91,17 @@ export default function AdminDashboard() {
   const [pForm, setPForm] = useState({ ...pricing });
   const [annForm, setAnnForm] = useState({ message: '', showToAll: true });
   const [renewMonths, setRenewMonths] = useState(1);
+
+  // Featured entity form (manual display by super admin)
+  const [featuredForm, setFeaturedForm] = useState({
+    entityId: '',
+    entityType: 'center' as 'center' | 'department',
+    name: '',
+    startDate: new Date().toISOString().split('T')[0],
+    endDate: '',
+    isPaid: false,
+    price: 0,
+  });
 
   // Stats - independent clinics only (not center departments)
   const activeCenters = getActiveCenters();
@@ -393,7 +406,7 @@ export default function AdminDashboard() {
 
         {/* Tabs */}
         <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-          {([{ id: 'overview', label: 'نظرة عامة', icon: Star }, { id: 'centers', label: 'المراكز الطبية (ب)', icon: Building2 }, { id: 'departments', label: 'العيادات (أ)', icon: Briefcase }, { id: 'pricing', label: 'أسعار الاشتراكات', icon: Coins }, { id: 'payments', label: 'طرق الدفع', icon: CreditCard }, { id: 'announcements', label: 'رسائل المدراء', icon: Mail }, { id: 'logs', label: 'سجل العمليات', icon: FileText }] as const).map(t => (
+          {([{ id: 'overview', label: 'نظرة عامة', icon: Star }, { id: 'centers', label: 'المراكز الطبية (ب)', icon: Building2 }, { id: 'departments', label: 'العيادات (أ)', icon: Briefcase }, { id: 'pricing', label: 'أسعار الاشتراكات', icon: Coins }, { id: 'payments', label: 'طرق الدفع', icon: CreditCard }, { id: 'announcements', label: 'رسائل المدراء', icon: Mail }, { id: 'appearance', label: 'الظهور الإعلاني', icon: Eye }, { id: 'logs', label: 'سجل العمليات', icon: FileText }] as const).map(t => (
             <Button key={t.id} variant={tab === t.id ? 'default' : 'outline'} onClick={() => setTab(t.id as Tab)} className={tab === t.id ? 'bg-teal-600 hover:bg-teal-700 gap-2' : 'gap-2'}><t.icon className="w-4 h-4" />{t.label}</Button>
           ))}
         </div>
@@ -607,17 +620,19 @@ export default function AdminDashboard() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2"><Label>سعر اشتراك المركز الطبي (ب) شهرياً (د.ع)</Label><Input type="number" value={pForm.platform?.centerMonthlyPrice || pricing.platform.centerMonthlyPrice} onChange={e => setPForm({ ...pForm, platform: { ...(pForm.platform || pricing.platform), centerMonthlyPrice: Number(e.target.value) } })} /></div>
                   <div className="space-y-2"><Label>سعر اشتراك القسم المستقل (أ) شهرياً (د.ع)</Label><Input type="number" value={pForm.platform?.deptMonthlyPrice || pricing.platform.deptMonthlyPrice} onChange={e => setPForm({ ...pForm, platform: { ...(pForm.platform || pricing.platform), deptMonthlyPrice: Number(e.target.value) } })} /></div>
-                  <div className="space-y-2"><Label>سعر الظهور الإعلاني الشهري (د.ع)</Label><Input type="number" value={pForm.appearance?.monthlyPrice || pricing.appearance.monthlyPrice} onChange={e => setPForm({ ...pForm, appearance: { ...(pForm.appearance || pricing.appearance), monthlyPrice: Number(e.target.value) } })} /><p className="text-xs text-gray-400">سعر الظهور في الصفحة الرئيسية</p></div>
+                  <div className="space-y-2"><Label>سعر الظهور الإعلاني الشهري (د.ع)</Label><Input type="number" value={pForm.appearance?.monthlyPrice || pricing.appearance.monthlyPrice} onChange={e => setPForm({ ...pForm, appearance: { ...(pForm.appearance || pricing.appearance), monthlyPrice: Number(e.target.value) } })} /><p className="text-xs text-gray-400">سعر الاشتراك الشهري للظهور</p></div>
+                  <div className="space-y-2"><Label>سعر الظهور الإعلاني اليومي (د.ع)</Label><Input type="number" value={pForm.appearance?.dailyPrice || pricing.appearance.dailyPrice || 500} onChange={e => setPForm({ ...pForm, appearance: { ...(pForm.appearance || pricing.appearance), dailyPrice: Number(e.target.value) } })} /><p className="text-xs text-gray-400">سعر الظهور لعدد أيام محدد</p></div>
                   <div className="space-y-2"><Label>فترة تجريبية للظهور (بالأيام)</Label><Input type="number" value={pForm.appearance?.freeTrialDays || pricing.appearance.freeTrialDays} onChange={e => setPForm({ ...pForm, appearance: { ...(pForm.appearance || pricing.appearance), freeTrialDays: Number(e.target.value) } })} /><p className="text-xs text-gray-400">فترة تجريبية مجانية للظهور الإعلاني</p></div>
                 </div>
                 <Button onClick={() => { updatePricing(pForm); showMsg('تم حفظ الإعدادات'); }} className="bg-amber-600 hover:bg-amber-700 gap-2"><Save className="w-4 h-4" />حفظ الإعدادات</Button>
               </div>
               <Separator className="my-6" />
               <h4 className="font-semibold text-gray-900 mb-3">الأسعار الحالية</h4>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-center">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                 <Card className="p-3 bg-teal-50"><p className="text-sm text-gray-500">مركز طبي (ب)</p><p className="text-xl font-bold text-teal-700">{pricing.platform.centerMonthlyPrice.toLocaleString()}</p><p className="text-xs text-gray-400">د.ع / شهر</p></Card>
                 <Card className="p-3 bg-blue-50"><p className="text-sm text-gray-500">قسم مستقل (أ)</p><p className="text-xl font-bold text-blue-700">{pricing.platform.deptMonthlyPrice.toLocaleString()}</p><p className="text-xs text-gray-400">د.ع / شهر</p></Card>
-                <Card className="p-3 bg-purple-50"><p className="text-sm text-gray-500">ظهور إعلاني</p><p className="text-xl font-bold text-purple-700">{pricing.appearance.monthlyPrice.toLocaleString()}</p><p className="text-xs text-gray-400">د.ع / شهر</p></Card>
+                <Card className="p-3 bg-purple-50"><p className="text-sm text-gray-500">ظهور شهري</p><p className="text-xl font-bold text-purple-700">{pricing.appearance.monthlyPrice.toLocaleString()}</p><p className="text-xs text-gray-400">د.ع / شهر</p></Card>
+                <Card className="p-3 bg-pink-50"><p className="text-sm text-gray-500">ظهور يومي</p><p className="text-xl font-bold text-pink-700">{(pricing.appearance.dailyPrice || 500).toLocaleString()}</p><p className="text-xs text-gray-400">د.ع / يوم</p></Card>
               </div>
             </Card>
           </div>
@@ -765,6 +780,206 @@ export default function AdminDashboard() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* APPEARANCE TAB - Visibility Settings + Manual Featured */}
+        {tab === 'appearance' && (
+          <div className="max-w-3xl space-y-6">
+            {/* Section 1: Enable/Disable Appearance Feature */}
+            <Card className="p-6 border-2 border-purple-200">
+              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <Eye className="w-5 h-5 text-purple-600" />
+                إعدادات الظهور الإعلاني
+              </h3>
+              <p className="text-sm text-gray-500 mb-4">
+                تحكم في ظهور ميزة الاشتراك الإعلاني لعملاء المنصة (مدراء المراكز والعيادات). عند التفعيل، يظهر جدول الظهور الإعلاني في لوحة تحكم العميل.
+              </p>
+
+              {/* Enable/Disable Toggle */}
+              <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg mb-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${appearanceVisibility.enabled ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-400'}`}>
+                    <Eye className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-900">تفعيل ميزة الظهور الإعلاني</p>
+                    <p className="text-xs text-gray-500">إظهار جدول الاشتراك الإعلاني للعملاء</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    const newVal = !appearanceVisibility.enabled;
+                    updateAppearanceVisibility({ ...appearanceVisibility, enabled: newVal });
+                    showMsg(newVal ? 'تم تفعيل الظهور الإعلاني' : 'تم تعطيل الظهور الإعلاني');
+                  }}
+                  className={`relative w-14 h-8 rounded-full transition-all ${appearanceVisibility.enabled ? 'bg-green-500' : 'bg-gray-300'}`}
+                >
+                  <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-all ${appearanceVisibility.enabled ? 'left-7' : 'left-1'}`} />
+                </button>
+              </div>
+
+              {/* Target Selection */}
+              {appearanceVisibility.enabled && (
+                <div className="space-y-4">
+                  <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
+                    <Label className="text-sm font-semibold mb-3 block">مين يشوف ميزة الظهور؟</Label>
+                    <div className="flex gap-3">
+                      {([
+                        { value: 'all' as const, label: 'الكل', desc: 'المراكز والعيادات', icon: Eye },
+                        { value: 'centers' as const, label: 'المراكز فقط', desc: 'مراكز طبية فقط', icon: Building2 },
+                        { value: 'departments' as const, label: 'العيادات فقط', desc: 'عيادات فقط', icon: Briefcase },
+                      ]).map(opt => (
+                        <button
+                          key={opt.value}
+                          onClick={() => {
+                            updateAppearanceVisibility({ ...appearanceVisibility, target: opt.value });
+                            showMsg('تم تحديد: ' + opt.label);
+                          }}
+                          className={`flex-1 p-3 rounded-lg border-2 text-center transition-all ${
+                            appearanceVisibility.target === opt.value
+                              ? 'border-purple-500 bg-purple-50'
+                              : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          <opt.icon className={`w-5 h-5 mx-auto mb-1 ${appearanceVisibility.target === opt.value ? 'text-purple-600' : 'text-gray-400'}`} />
+                          <p className="text-sm font-semibold">{opt.label}</p>
+                          <p className="text-xs text-gray-500">{opt.desc}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </Card>
+
+            {/* Section 2: Manual Featured Display */}
+            <Card className="p-6 border-2 border-amber-200">
+              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <Star className="w-5 h-5 text-amber-600" />
+                إظهار يدوي في الواجهة
+              </h3>
+              <p className="text-sm text-gray-500 mb-4">
+                اختر مركز أو عيادة لإظهارها في واجهة المنصة لمدة محددة. يمكن أن يكون الظهور مجاناً أو مقابل مادي.
+              </p>
+
+              {/* Add Featured Form */}
+              <div className="space-y-3 bg-amber-50/50 p-4 rounded-lg border border-amber-100">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">الكيان</Label>
+                    <select
+                      value={featuredForm.entityId}
+                      onChange={e => {
+                        const selected = e.target.value;
+                        const center = centers.find(c => c.id === selected);
+                        const dept = departments.find(d => d.id === selected);
+                        setFeaturedForm({
+                          ...featuredForm,
+                          entityId: selected,
+                          entityType: center ? 'center' : 'department',
+                          name: center?.name || dept?.name || '',
+                        });
+                      }}
+                      className="w-full h-10 rounded-md border border-input bg-white px-3 text-sm"
+                    >
+                      <option value="">-- اختر مركز أو عيادة --</option>
+                      <optgroup label="المراكز الطبية">
+                        {getActiveCenters().map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="العيادات">
+                        {getActiveDepartments().map(d => (
+                          <option key={d.id} value={d.id}>{d.name}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">النوع</Label>
+                    <Input value={featuredForm.entityType === 'center' ? 'مركز طبي' : 'عيادة'} readOnly className="bg-gray-50" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">من تاريخ</Label>
+                    <Input type="date" value={featuredForm.startDate} onChange={e => setFeaturedForm({ ...featuredForm, startDate: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">إلى تاريخ</Label>
+                    <Input type="date" value={featuredForm.endDate} onChange={e => setFeaturedForm({ ...featuredForm, endDate: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">السعر (د.ع) - 0 للمجاني</Label>
+                    <Input type="number" value={featuredForm.price} onChange={e => setFeaturedForm({ ...featuredForm, price: Number(e.target.value), isPaid: Number(e.target.value) > 0 })} />
+                  </div>
+                  <div className="flex items-end">
+                    <Badge className={featuredForm.isPaid ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}>
+                      {featuredForm.isPaid ? 'مدفوع' : 'مجاني'}
+                    </Badge>
+                  </div>
+                </div>
+                <Button
+                  onClick={() => {
+                    if (!featuredForm.entityId || !featuredForm.endDate) {
+                      showMsg('اختر كيان وحدد تاريخ النهاية');
+                      return;
+                    }
+                    addFeaturedEntity({
+                      id: 'feat-' + Date.now(),
+                      entityId: featuredForm.entityId,
+                      entityType: featuredForm.entityType,
+                      name: featuredForm.name,
+                      startDate: new Date(featuredForm.startDate).toISOString(),
+                      endDate: new Date(featuredForm.endDate).toISOString(),
+                      isPaid: featuredForm.isPaid,
+                      price: featuredForm.price,
+                      isManual: true,
+                      createdAt: new Date().toISOString(),
+                    });
+                    setFeaturedForm({ entityId: '', entityType: 'center', name: '', startDate: new Date().toISOString().split('T')[0], endDate: '', isPaid: false, price: 0 });
+                    showMsg('تم إضافة الظهور اليدوي');
+                  }}
+                  disabled={!featuredForm.entityId || !featuredForm.endDate}
+                  className="bg-amber-600 hover:bg-amber-700 gap-2 w-full"
+                >
+                  <Star className="w-4 h-4" />
+                  إضافة للواجهة
+                </Button>
+              </div>
+
+              {/* List of Featured Entities */}
+              {featuredEntities.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <h4 className="font-semibold text-sm text-gray-700">الكيانات المُظهرة حالياً:</h4>
+                  {featuredEntities.map(fe => {
+                    const now = new Date().toISOString();
+                    const isActive = fe.startDate <= now && fe.endDate >= now;
+                    return (
+                      <Card key={fe.id} className={`p-3 ${isActive ? 'border-green-200' : 'border-gray-200 opacity-50'}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-green-500' : 'bg-gray-300'}`} />
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">{fe.name}</p>
+                              <p className="text-xs text-gray-500">
+                                {fe.entityType === 'center' ? 'مركز طبي' : 'عيادة'} |
+                                {new Date(fe.startDate).toLocaleDateString('ar-IQ')} - {new Date(fe.endDate).toLocaleDateString('ar-IQ')} |
+                                <Badge className={fe.isPaid ? 'bg-amber-100 text-amber-700 text-xs' : 'bg-green-100 text-green-700 text-xs'}>
+                                  {fe.isPaid ? fe.price.toLocaleString() + ' د.ع' : 'مجاني'}
+                                </Badge>
+                              </p>
+                            </div>
+                          </div>
+                          <Button variant="ghost" size="sm" className="text-red-500" onClick={() => { removeFeaturedEntity(fe.id); showMsg('تم الحذف'); }}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
           </div>
         )}
 
