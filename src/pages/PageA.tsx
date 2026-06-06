@@ -26,8 +26,8 @@ function generateDeptSlots(dept: Department): BookingSlot[] {
   const duration = dept.consultationDuration || 15;
   
   // Parse working hours
-  const start = dept.startTime || '08:00';
-  const end = dept.endTime || '22:00';
+  const start = dept.startTime || '09:00';
+  const end = dept.endTime || '14:00';
   
   const [startH, startM] = start.split(':').map(Number);
   const [endH, endM] = end.split(':').map(Number);
@@ -41,6 +41,41 @@ function generateDeptSlots(dept: Department): BookingSlot[] {
     if (m >= 60) { h += 1; m -= 60; }
   }
   return slots;
+}
+
+// Helper: get all upcoming dates filtered by department's working days
+function getUpcomingWorkingDays(dept: Department) {
+  const days = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+  const workingDays = dept.workingDays || [];
+  const vacationDays = dept.vacationDays || [];
+  const daysOff = dept.daysOff || ['الجمعة'];
+  const window = dept.bookingWindow || 7;
+  
+  const result: { dayName: string; dateStr: string; fullDate: string }[] = [];
+  
+  for (let i = 0; i < 90; i++) { // check up to 90 days ahead
+    if (result.length >= window) break;
+    
+    const date = new Date();
+    date.setDate(date.getDate() + i);
+    
+    const dayName = days[date.getDay()];
+    const fullDate = date.toISOString().split('T')[0];
+    
+    // Skip if not a working day for this department
+    if (!workingDays.includes(dayName)) continue;
+    
+    // Skip if it's a weekly day off
+    if (daysOff.includes(dayName)) continue;
+    
+    // Skip if it's a vacation day
+    if (vacationDays.includes(fullDate)) continue;
+    
+    const dateStr = date.toLocaleDateString('ar-IQ', { day: 'numeric', month: 'long' });
+    result.push({ dayName, dateStr, fullDate });
+  }
+  
+  return result;
 }
 
 // Simulated booked slots (in production this comes from Firebase/database)
@@ -83,14 +118,11 @@ export default function PageA() {
     return centerDepts.find(d => d.id === booking.specialty?.id) || null;
   }, [booking.specialty, centerDepts]);
 
-  const upcomingDays = Array.from({ length: 7 }, (_, i) => {
-    const date = new Date();
-    date.setDate(date.getDate() + i);
-    const days = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-    const dayName = days[date.getDay()];
-    const dateStr = date.toLocaleDateString('ar-IQ', { day: 'numeric', month: 'long' });
-    return { dayName, dateStr, fullDate: date.toISOString().split('T')[0], disabled: false };
-  });
+  // Generate upcoming days filtered by department's actual working schedule
+  const upcomingDays = useMemo(() => {
+    if (!selectedDept) return [];
+    return getUpcomingWorkingDays(selectedDept);
+  }, [selectedDept]);
 
   // Step 0: Select department
   const handleDeptSelect = (dept: Department) => {
@@ -245,7 +277,10 @@ export default function PageA() {
                           <h3 className="font-bold text-gray-900">{dept.name}</h3>
                           {dept.description && <p className="text-sm text-gray-500 mt-1">{dept.description}</p>}
                           {dept.doctorName && <p className="text-sm mt-1" style={{ color: '#5C7A6B' }}>د. {dept.doctorName}</p>}
-                          {dept.workingHours && <p className="text-xs text-gray-400 mt-1">{dept.workingDays} | {dept.workingHours}</p>}
+                          {dept.startTime && <p className="text-xs text-gray-400 mt-1">{dept.startTime} - {dept.endTime} | {dept.consultationDuration || 15} دقيقة</p>}
+                          {dept.workingDays && Array.isArray(dept.workingDays) && dept.workingDays.length > 0 && (
+                            <p className="text-xs text-teal-600 mt-1">{dept.workingDays.join('، ')}</p>
+                          )}
                         </div>
                       </div>
                     </Card>
@@ -292,9 +327,16 @@ export default function PageA() {
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2 text-sm text-gray-500">
-                    <Badge variant="outline">{selectedDept.workingDays}</Badge>
-                    <Badge variant="outline">{selectedDept.workingHours}</Badge>
+                    {selectedDept.workingDays && Array.isArray(selectedDept.workingDays) && selectedDept.workingDays.length > 0 && (
+                      <Badge variant="outline">{selectedDept.workingDays.join('، ')}</Badge>
+                    )}
+                    <Badge variant="outline">{selectedDept.startTime} - {selectedDept.endTime}</Badge>
                     <Badge variant="outline">كشف {selectedDept.consultationDuration || 15} دقيقة</Badge>
+                    {selectedDept.vacationDays && selectedDept.vacationDays.length > 0 && (
+                      <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200">
+                        إجازة: {selectedDept.vacationDays.join('، ')}
+                      </Badge>
+                    )}
                   </div>
                 </div>
               </div>
@@ -335,21 +377,29 @@ export default function PageA() {
 
             <Card className="p-6 mb-4">
               <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2"><CalendarDays className="w-5 h-5" style={{ color: '#5C7A6B' }} />اختر اليوم</h3>
-              <div className="grid grid-cols-4 sm:grid-cols-7 gap-3">
-                {upcomingDays.map(day => {
-                  const isOff = booking.doctor?.schedule.daysOff?.includes(day.dayName);
-                  const isSelected = selectedDate === day.fullDate;
-                  return (
-                    <button key={day.fullDate} disabled={isOff} onClick={() => handleDateSelect(day.fullDate)}
-                      className={`p-3 rounded-xl text-center transition-all ${isSelected ? 'text-white shadow-lg' : isOff ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white border-2 border-gray-200'}`}
-                      style={isSelected ? { backgroundColor: '#5C7A6B' } : {}}>
-                      <div className="text-xs font-medium">{day.dayName}</div>
-                      <div className="text-sm font-bold mt-1">{day.dateStr}</div>
-                      {isOff && <div className="text-[10px] mt-1">عطلة</div>}
-                    </button>
-                  );
-                })}
-              </div>
+              <p className="text-xs text-gray-500 mb-3">
+                أيام دوام {booking.doctor?.name || 'الطبيب'}: {selectedDept?.workingDays?.join('، ') || 'غير محدد'}
+              </p>
+              {upcomingDays.length === 0 ? (
+                <div className="text-center p-6 bg-gray-50 rounded-xl">
+                  <p className="text-gray-500">لا توجد أيام دوام متاحة في الفترة القادمة</p>
+                  <p className="text-xs text-gray-400 mt-1">قد يكون الطبيب في إجازة أو لم يحدد أيام دوام</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 sm:grid-cols-5 gap-3">
+                  {upcomingDays.map(day => {
+                    const isSelected = selectedDate === day.fullDate;
+                    return (
+                      <button key={day.fullDate} onClick={() => handleDateSelect(day.fullDate)}
+                        className={`p-3 rounded-xl text-center transition-all ${isSelected ? 'text-white shadow-lg' : 'bg-white border-2 border-gray-200 hover:border-teal-400'}`}
+                        style={isSelected ? { backgroundColor: '#5C7A6B' } : {}}>
+                        <div className="text-xs font-medium">{day.dayName}</div>
+                        <div className="text-sm font-bold mt-1">{day.dateStr}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </Card>
 
             {selectedDate && slots.length > 0 && (
