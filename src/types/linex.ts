@@ -44,7 +44,7 @@ export interface Center {
   phone: string;
   email: string;
   logo: string; // رابط الشعار أو base64
-  workingDays: string;
+  workingDays: string[]; // أيام دوام المركز: ["السبت", "الأحد", ...]
   workingHours: string;
   fridayHours: string;
   emergencyHours: string;
@@ -76,6 +76,7 @@ export interface Center {
 }
 
 // قسم / تخصص = صفحة (أ)
+// كل قسم له جدوله الخاص مستقل عن المركز
 export interface Department {
   id: string;
   name: string;
@@ -85,14 +86,18 @@ export interface Department {
   doctorEmail: string;
   doctorPhone: string;
   logo: string; // رابط الشعار أو base64
-  // جدولة المواعيد - المركز يحدد المواعيد الأساسية وكل قسم يرثها ويعدلها
-  workingDays: string;
+  // ===== جدولة المواعيد الخاصة بالقسم (مستقلة تماماً) =====
+  workingDays: string[];   // أيام الدوام: ["السبت", "الأحد", "الاثنين", ...]
+  startTime: string;       // بداية الدوام ("09:00")
+  endTime: string;         // نهاية الدوام ("14:00")
+  consultationDuration: number; // مدة الكشف بالدقائق (افتراضي 15)
+  daysOff: string[];       // أيام العطلة الأسبوعية (افتراضياً ["الجمعة"])
+  vacationDays: string[];  // أيام إجازة اضطرارية (تواريخ YYYY-MM-DD)
+  bookingWindow: number;   // عدد الأيام المقبلة الظاهرة للحجز (افتراضي 7)
+  // حقول قديمة للتوافق - لا تستخدم في الجدولة
   workingHours: string;
   fridayHours: string;
-  consultationDuration: number; // مدة الكشف بالدقائق (افتراضي 15)
-  startTime: string;       // بداية الدوام (مثال: "08:00") - يرث من المركز
-  endTime: string;         // نهاية الدوام (مثال: "22:00") - يرث من المركز
-  daysOff: string[];       // أيام العطلة (افتراضياً الجمعة)
+  // =====
   centerId: string | null;
   adminId: string;
   // تفعيل الاشتراك
