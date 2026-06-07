@@ -1,43 +1,10 @@
 // ======== Unified Data Storage ========
-// PRIMARY: Firebase Firestore (syncs across all devices)
-// FALLBACK: localStorage (offline cache)
+// Uses localStorage as PRIMARY data source (Firebase disabled for now)
+// All reads/writes go through localStorage with event broadcasting
 
-import { db } from '@/lib/firebase';
-import {
-  doc, setDoc, getDoc, deleteDoc, collection, getDocs, onSnapshot,
-  type DocumentData
-} from 'firebase/firestore';
-import type {
-  Center, Department, PricingDefaults, Admin, AdminAnnouncement,
-  AppearanceVisibilitySettings, FeaturedEntity, PaymentMethodsSettings
-} from '@/types/linex';
+import type { Center, Department, PricingDefaults, Admin, AdminAnnouncement, AppearanceVisibilitySettings, FeaturedEntity, PaymentMethodsSettings } from '@/types/linex';
 
-// ======== Collection Names ========
-const COLLECTIONS = {
-  ADMINS: 'admins',
-  CENTERS: 'centers',
-  DEPARTMENTS: 'departments',
-  AUTH: 'auth_state',
-  PRICING: 'pricing',
-  VISIBILITY: 'appearanceVisibility',
-  FEATURED: 'featured',
-  PAYMENTS: 'paymentMethods',
-  ANNOUNCEMENTS: 'announcements',
-};
-
-// ======== LocalStorage Keys (for cache/fallback) ========
-export const STORAGE_KEYS = {
-  ADMINS: 'linex_admins',
-  CENTERS: 'linex_centers',
-  DEPARTMENTS: 'linex_departments',
-  AUTH: 'linex_auth',
-  PRICING: 'linex_pricing',
-  VISIBILITY: 'linex_appearance_visibility',
-  FEATURED: 'linex_featured',
-  PAYMENTS: 'linex_payment_methods',
-  ANNOUNCEMENTS: 'linex_announcements',
-};
-
+// ======== LocalStorage Keys ========
 const KEYS = {
   ADMINS: 'linex_admins',
   CENTERS: 'linex_centers',
@@ -48,209 +15,146 @@ const KEYS = {
   FEATURED: 'linex_featured',
   PAYMENTS: 'linex_payment_methods',
   ANNOUNCEMENTS: 'linex_announcements',
+  LOGS: 'linex_logs',
 };
 
-// Check if Firestore is available
-const hasFirestore = () => !!db;
-
-// ======== localStorage Helpers ========
-function lsGet<T>(key: string, fallback: T): T {
-  try { const s = localStorage.getItem(key); if (s) return JSON.parse(s); } catch { /* ignore */ }
+// ======== Generic Helpers ========
+function getItem<T>(key: string, fallback: T): T {
+  try {
+    const s = localStorage.getItem(key);
+    if (s) return JSON.parse(s);
+  } catch { /* ignore */ }
   return fallback;
 }
-function lsSet(key: string, val: unknown): void {
-  try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* ignore */ }
+
+function setItem(key: string, value: unknown): void {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ }
 }
-function lsRemove(key: string): void {
+
+function removeItem(key: string): void {
   try { localStorage.removeItem(key); } catch { /* ignore */ }
 }
 
-// ======== Firestore Helpers ========
-async function fsGetDoc<T>(collection: string, id: string): Promise<T | null> {
-  if (!hasFirestore()) return null;
-  try {
-    const snap = await getDoc(doc(db!, collection, id));
-    return snap.exists() ? (snap.data() as T) : null;
-  } catch { return null; }
+function broadcastUpdate(key: string): void {
+  window.dispatchEvent(new StorageEvent('storage', { key, newValue: localStorage.getItem(key) }));
 }
 
-async function fsSetDoc(collection: string, id: string, data: DocumentData): Promise<boolean> {
-  if (!hasFirestore()) return false;
-  try { await setDoc(doc(db!, collection, id), data); return true; } catch { return false; }
+// ======== Admins ========
+export function getAdmins(): Admin[] {
+  return getItem<Admin[]>(KEYS.ADMINS, []);
 }
 
-async function fsDeleteDoc(collection: string, id: string): Promise<boolean> {
-  if (!hasFirestore()) return false;
-  try { await deleteDoc(doc(db!, collection, id)); return true; } catch { return false; }
-}
-
-async function fsGetCollection<T>(collectionName: string): Promise<T[]> {
-  if (!hasFirestore()) return [];
-  try {
-    const snap = await getDocs(collection(db!, collectionName));
-    return snap.docs.map(d => ({ ...d.data(), id: d.id } as T));
-  } catch { return []; }
-}
-
-// ======== ADMINS ========
-export async function getAdmins(): Promise<Admin[]> {
-  // Try Firestore first
-  const fromFs = await fsGetCollection<Admin>(COLLECTIONS.ADMINS);
-  if (fromFs.length > 0) {
-    lsSet(KEYS.ADMINS, fromFs);
-    return fromFs;
-  }
-  // Fallback to localStorage
-  return lsGet<Admin[]>(KEYS.ADMINS, []);
-}
-
-export async function saveAdmin(admin: Admin): Promise<void> {
-  // Write to Firestore first
-  await fsSetDoc(COLLECTIONS.ADMINS, admin.id, admin);
-  // Update localStorage
-  const admins = await getAdmins();
+export function saveAdmin(admin: Admin): void {
+  const admins = getAdmins();
   const idx = admins.findIndex(a => a.id === admin.id);
   if (idx >= 0) admins[idx] = admin;
   else admins.push(admin);
-  lsSet(KEYS.ADMINS, admins);
+  setItem(KEYS.ADMINS, admins);
+  broadcastUpdate(KEYS.ADMINS);
 }
 
-export async function deleteAdmin(id: string): Promise<void> {
-  await fsDeleteDoc(COLLECTIONS.ADMINS, id);
-  const admins = (await getAdmins()).filter(a => a.id !== id);
-  lsSet(KEYS.ADMINS, admins);
+export function deleteAdmin(id: string): void {
+  setItem(KEYS.ADMINS, getAdmins().filter(a => a.id !== id));
+  broadcastUpdate(KEYS.ADMINS);
 }
 
-// ======== AUTH ========
+// ======== Auth ========
 export function getAuth(): { isAuthenticated: boolean; admin: Admin | null } {
-  return lsGet<{ isAuthenticated: boolean; admin: Admin | null }>(KEYS.AUTH, { isAuthenticated: false, admin: null });
+  return getItem<{ isAuthenticated: boolean; admin: Admin | null }>(KEYS.AUTH, { isAuthenticated: false, admin: null });
 }
 
 export function setAuth(auth: { isAuthenticated: boolean; admin: Admin | null }): void {
-  lsSet(KEYS.AUTH, auth);
+  setItem(KEYS.AUTH, auth);
+  broadcastUpdate(KEYS.AUTH);
 }
 
 export function clearAuth(): void {
-  lsRemove(KEYS.AUTH);
+  removeItem(KEYS.AUTH);
+  broadcastUpdate(KEYS.AUTH);
 }
 
-// ======== CENTERS ========
-export async function getCenters(): Promise<Center[]> {
-  const fromFs = await fsGetCollection<Center>(COLLECTIONS.CENTERS);
-  if (fromFs.length > 0) {
-    lsSet(KEYS.CENTERS, fromFs);
-    return fromFs;
-  }
-  return lsGet<Center[]>(KEYS.CENTERS, []);
+// ======== Centers ========
+export function getCenters(): Center[] {
+  return getItem<Center[]>(KEYS.CENTERS, []);
 }
 
-export async function saveCenter(center: Center): Promise<void> {
-  await fsSetDoc(COLLECTIONS.CENTERS, center.id, center);
-  const centers = await getCenters();
+export function saveCenter(center: Center): void {
+  const centers = getCenters();
   const idx = centers.findIndex(c => c.id === center.id);
   if (idx >= 0) centers[idx] = center;
   else centers.push(center);
-  lsSet(KEYS.CENTERS, centers);
+  setItem(KEYS.CENTERS, centers);
+  broadcastUpdate(KEYS.CENTERS);
 }
 
-export async function removeCenter(id: string): Promise<void> {
-  await fsDeleteDoc(COLLECTIONS.CENTERS, id);
-  const centers = (await getCenters()).filter(c => c.id !== id);
-  lsSet(KEYS.CENTERS, centers);
+export function removeCenter(id: string): void {
+  setItem(KEYS.CENTERS, getCenters().filter(c => c.id !== id));
+  broadcastUpdate(KEYS.CENTERS);
 }
 
-// ======== DEPARTMENTS ========
-export async function getDepartments(): Promise<Department[]> {
-  const fromFs = await fsGetCollection<Department>(COLLECTIONS.DEPARTMENTS);
-  if (fromFs.length > 0) {
-    lsSet(KEYS.DEPARTMENTS, fromFs);
-    return fromFs;
-  }
-  return lsGet<Department[]>(KEYS.DEPARTMENTS, []);
+// ======== Departments ========
+export function getDepartments(): Department[] {
+  return getItem<Department[]>(KEYS.DEPARTMENTS, []);
 }
 
-export async function saveDepartment(dept: Department): Promise<void> {
-  await fsSetDoc(COLLECTIONS.DEPARTMENTS, dept.id, dept);
-  const depts = await getDepartments();
+export function saveDepartment(dept: Department): void {
+  const depts = getDepartments();
   const idx = depts.findIndex(d => d.id === dept.id);
   if (idx >= 0) depts[idx] = dept;
   else depts.push(dept);
-  lsSet(KEYS.DEPARTMENTS, depts);
+  setItem(KEYS.DEPARTMENTS, depts);
+  broadcastUpdate(KEYS.DEPARTMENTS);
 }
 
-export async function removeDepartment(id: string): Promise<void> {
-  await fsDeleteDoc(COLLECTIONS.DEPARTMENTS, id);
-  const depts = (await getDepartments()).filter(d => d.id !== id);
-  lsSet(KEYS.DEPARTMENTS, depts);
+export function removeDepartment(id: string): void {
+  setItem(KEYS.DEPARTMENTS, getDepartments().filter(d => d.id !== id));
+  broadcastUpdate(KEYS.DEPARTMENTS);
 }
 
-// ======== PRICING ========
-export async function getPricing(): Promise<PricingDefaults> {
-  const fromFs = await fsGetDoc<PricingDefaults>(COLLECTIONS.PRICING, 'default');
-  if (fromFs) {
-    lsSet(KEYS.PRICING, fromFs);
-    return fromFs;
-  }
-  return lsGet<PricingDefaults>(KEYS.PRICING, {
+// ======== Pricing ========
+export function getPricing(): PricingDefaults {
+  return getItem<PricingDefaults>(KEYS.PRICING, {
     platform: { centerMonthlyPrice: 50000, deptMonthlyPrice: 25000, freeTrialDays: 7 },
     appearance: { monthlyPrice: 10000, dailyPrice: 500, freeTrialDays: 3 },
     trial: { enabled: true, trialDays: 10, showNotice: true, noticeText: '' },
   });
 }
 
-export async function savePricing(pricing: PricingDefaults): Promise<void> {
-  await fsSetDoc(COLLECTIONS.PRICING, 'default', pricing);
-  lsSet(KEYS.PRICING, pricing);
+export function savePricing(pricing: PricingDefaults): void {
+  setItem(KEYS.PRICING, pricing);
+  broadcastUpdate(KEYS.PRICING);
 }
 
-// ======== APPEARANCE VISIBILITY ========
-export async function getVisibility(): Promise<AppearanceVisibilitySettings> {
-  const fromFs = await fsGetDoc<AppearanceVisibilitySettings>(COLLECTIONS.VISIBILITY, 'default');
-  if (fromFs) {
-    lsSet(KEYS.VISIBILITY, fromFs);
-    return fromFs;
-  }
-  return lsGet<AppearanceVisibilitySettings>(KEYS.VISIBILITY, { enabled: false, target: 'all' });
+// ======== Appearance Visibility ========
+export function getVisibility(): AppearanceVisibilitySettings {
+  return getItem<AppearanceVisibilitySettings>(KEYS.VISIBILITY, { enabled: false, target: 'all' });
 }
 
-export async function saveVisibility(settings: AppearanceVisibilitySettings): Promise<void> {
-  await fsSetDoc(COLLECTIONS.VISIBILITY, 'default', settings);
-  lsSet(KEYS.VISIBILITY, settings);
+export function saveVisibility(settings: AppearanceVisibilitySettings): void {
+  setItem(KEYS.VISIBILITY, settings);
+  broadcastUpdate(KEYS.VISIBILITY);
 }
 
-// ======== FEATURED ========
-export async function getFeatured(): Promise<FeaturedEntity[]> {
-  const fromFs = await fsGetCollection<FeaturedEntity>(COLLECTIONS.FEATURED);
-  if (fromFs.length > 0) {
-    lsSet(KEYS.FEATURED, fromFs);
-    return fromFs;
-  }
-  return lsGet<FeaturedEntity[]>(KEYS.FEATURED, []);
+// ======== Featured ========
+export function getFeatured(): FeaturedEntity[] {
+  return getItem<FeaturedEntity[]>(KEYS.FEATURED, []);
 }
 
-export async function saveFeatured(entity: FeaturedEntity): Promise<void> {
-  await fsSetDoc(COLLECTIONS.FEATURED, entity.id, entity);
-  const entities = await getFeatured();
+export function saveFeatured(entity: FeaturedEntity): void {
+  const entities = getFeatured();
   const idx = entities.findIndex(e => e.id === entity.id);
   if (idx >= 0) entities[idx] = entity;
   else entities.push(entity);
-  lsSet(KEYS.FEATURED, entities);
+  setItem(KEYS.FEATURED, entities);
 }
 
-export async function removeFeatured(id: string): Promise<void> {
-  await fsDeleteDoc(COLLECTIONS.FEATURED, id);
-  const entities = (await getFeatured()).filter(e => e.id !== id);
-  lsSet(KEYS.FEATURED, entities);
+export function removeFeatured(id: string): void {
+  setItem(KEYS.FEATURED, getFeatured().filter(e => e.id !== id));
 }
 
-// ======== PAYMENT METHODS ========
-export async function getPayments(): Promise<PaymentMethodsSettings> {
-  const fromFs = await fsGetDoc<PaymentMethodsSettings>(COLLECTIONS.PAYMENTS, 'default');
-  if (fromFs) {
-    lsSet(KEYS.PAYMENTS, fromFs);
-    return fromFs;
-  }
-  return lsGet<PaymentMethodsSettings>(KEYS.PAYMENTS, {
+// ======== Payment Methods ========
+export function getPayments(): PaymentMethodsSettings {
+  return getItem<PaymentMethodsSettings>(KEYS.PAYMENTS, {
     methods: [
       { id: 'zaincash', name: 'ZainCash', nameAr: 'زين كاش', enabled: true, icon: 'Smartphone', description: 'الدفع عبر محفظة زين كاش', recipientName: '', recipientNumber: '', recipientPhone: '', recipientBank: '', instructions: 'أرسل المبلغ إلى رقم المحفظة أدناه، ثم أدخل رقم العملية' },
       { id: 'asia', name: 'AsiaHawala', nameAr: 'آسيا حوالة', enabled: true, icon: 'Building2', description: 'الدفع عبر آسيا حوالة', recipientName: '', recipientNumber: '', recipientPhone: '', recipientBank: '', instructions: 'أرسل المبلغ عبر آسيا حوالة إلى الرقم أدناه' },
@@ -263,72 +167,32 @@ export async function getPayments(): Promise<PaymentMethodsSettings> {
   });
 }
 
-export async function savePayments(settings: PaymentMethodsSettings): Promise<void> {
-  await fsSetDoc(COLLECTIONS.PAYMENTS, 'default', settings);
-  lsSet(KEYS.PAYMENTS, settings);
+export function savePayments(settings: PaymentMethodsSettings): void {
+  setItem(KEYS.PAYMENTS, settings);
 }
 
-// ======== ANNOUNCEMENTS ========
-export async function getAnnouncements(): Promise<AdminAnnouncement[]> {
-  const fromFs = await fsGetCollection<AdminAnnouncement>(COLLECTIONS.ANNOUNCEMENTS);
-  if (fromFs.length > 0) {
-    lsSet(KEYS.ANNOUNCEMENTS, fromFs);
-    return fromFs;
-  }
-  return lsGet<AdminAnnouncement[]>(KEYS.ANNOUNCEMENTS, []);
+// ======== Announcements ========
+export function getAnnouncements(): AdminAnnouncement[] {
+  return getItem<AdminAnnouncement[]>(KEYS.ANNOUNCEMENTS, []);
 }
 
-export async function saveAnnouncement(ann: AdminAnnouncement): Promise<void> {
-  await fsSetDoc(COLLECTIONS.ANNOUNCEMENTS, ann.id, ann);
-  const anns = await getAnnouncements();
+export function saveAnnouncement(ann: AdminAnnouncement): void {
+  const anns = getAnnouncements();
   const idx = anns.findIndex(a => a.id === ann.id);
   if (idx >= 0) anns[idx] = ann;
   else anns.push(ann);
-  lsSet(KEYS.ANNOUNCEMENTS, anns);
+  setItem(KEYS.ANNOUNCEMENTS, anns);
 }
 
-export async function removeAnnouncement(id: string): Promise<void> {
-  await fsDeleteDoc(COLLECTIONS.ANNOUNCEMENTS, id);
-  const anns = (await getAnnouncements()).filter(a => a.id !== id);
-  lsSet(KEYS.ANNOUNCEMENTS, anns);
-}
-
-// ======== Real-time Sync Listener ========
-export function subscribeToChanges(
-  collectionName: string,
-  callback: (data: unknown[]) => void
-): () => void {
-  if (!hasFirestore()) return () => {};
-  try {
-    return onSnapshot(collection(db!, collectionName), (snap) => {
-      const data = snap.docs.map(d => ({ ...d.data(), id: d.id }));
-      callback(data);
-    });
-  } catch { return () => {}; }
+export function removeAnnouncement(id: string): void {
+  setItem(KEYS.ANNOUNCEMENTS, getAnnouncements().filter(a => a.id !== id));
 }
 
 // ======== Seed Defaults ========
-export async function seedDefaults(): Promise<void> {
-  // Seed pricing if not exists
-  const pricing = await getPricing();
-  if (!pricing || !pricing.trial) {
-    await savePricing({
-      platform: { centerMonthlyPrice: 50000, deptMonthlyPrice: 25000, freeTrialDays: 7 },
-      appearance: { monthlyPrice: 10000, dailyPrice: 500, freeTrialDays: 3 },
-      trial: { enabled: true, trialDays: 10, showNotice: true, noticeText: '' },
-    });
-  }
-
-  // Seed visibility if not exists
-  const vis = await getVisibility();
-  if (!vis) {
-    await saveVisibility({ enabled: false, target: 'all' });
-  }
-
-  // Seed super admin if not exists
-  const admins = await getAdmins();
-  if (!admins.find(a => a.email === 'admin@linex.com')) {
-    await saveAdmin({
+export function seedDefaults(): void {
+  // Only seed if data doesn't exist
+  if (!localStorage.getItem(KEYS.ADMINS)) {
+    setItem(KEYS.ADMINS, [{
       id: 'super-admin-linex',
       fullName: 'المدير العام',
       username: 'admin@linex.com',
@@ -338,6 +202,19 @@ export async function seedDefaults(): Promise<void> {
       email: 'admin@linex.com',
       isActive: true,
       createdAt: new Date().toISOString(),
+    }]);
+  }
+  if (!localStorage.getItem(KEYS.PRICING)) {
+    setItem(KEYS.PRICING, {
+      platform: { centerMonthlyPrice: 50000, deptMonthlyPrice: 25000, freeTrialDays: 7 },
+      appearance: { monthlyPrice: 10000, dailyPrice: 500, freeTrialDays: 3 },
+      trial: { enabled: true, trialDays: 10, showNotice: true, noticeText: '' },
     });
   }
+  if (!localStorage.getItem(KEYS.VISIBILITY)) {
+    setItem(KEYS.VISIBILITY, { enabled: false, target: 'all' });
+  }
 }
+
+// ======== Export keys for external use ========
+export { KEYS as STORAGE_KEYS };
