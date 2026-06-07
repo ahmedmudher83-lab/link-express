@@ -69,7 +69,7 @@ export default function AdminDashboard() {
     fridayHours: '4:00 م - 9:00 م', emergencyHours: '24 ساعة',
     activationType: 'paid' as ActivationType,
     subscriptionPrice: pricing.platform.centerMonthlyPrice,
-    freeTrialDays: pricing.platform.freeTrialDays,
+    freeTrialDays: pricing.trial?.trialDays || 10,
   });
 
   // Department form
@@ -77,7 +77,7 @@ export default function AdminDashboard() {
     name: '', description: '', icon: 'Stethoscope', doctorEmail: '', centerId: '',
     activationType: 'paid' as ActivationType,
     subscriptionPrice: pricing.platform.deptMonthlyPrice,
-    freeTrialDays: pricing.platform.freeTrialDays,
+    freeTrialDays: pricing.trial?.trialDays || 10,
   });
 
   // Admin form
@@ -157,7 +157,7 @@ export default function AdminDashboard() {
     addCenter(center);
     addLog({ id: 'log-' + Date.now(), action: 'create_center', adminName: auth.admin?.fullName || '', targetName: center.name, timestamp: new Date().toISOString(), details: `إنشاء مركز "${center.name}" - ${getActivationLabel(center.activationType)}${center.activationType === 'paid' ? ` - ${center.subscriptionPrice.toLocaleString()} د.ع/شهر` : ''}` });
     setShowCenterModal(false);
-    setCForm({ name: '', address: '', phone: '', email: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', emergencyHours: '24 ساعة', activationType: 'paid', subscriptionPrice: pricing.platform.centerMonthlyPrice, freeTrialDays: pricing.platform.freeTrialDays });
+    setCForm({ name: '', address: '', phone: '', email: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', emergencyHours: '24 ساعة', activationType: 'paid', subscriptionPrice: pricing.platform.centerMonthlyPrice, freeTrialDays: pricing.trial?.trialDays || 10 });
     setAForm({ fullName: '', username: '', password: '', phone: '', email: '' });
     showMsg('تم إنشاء المركز الطبي بنجاح');
   };
@@ -204,7 +204,7 @@ export default function AdminDashboard() {
     const parent = dept.centerId ? centers.find(c => c.id === dept.centerId)?.name : 'مستقل';
     addLog({ id: 'log-' + Date.now(), action: 'create_department', adminName: auth.admin?.fullName || '', targetName: dept.name, timestamp: new Date().toISOString(), details: `إنشاء عيادة "${dept.name}" (${parent}) - ${getActivationLabel(dept.activationType)}` });
     setShowDeptModal(false);
-    setDForm({ name: '', description: '', icon: 'Stethoscope', doctorEmail: '', centerId: '', activationType: 'paid', subscriptionPrice: pricing.platform.deptMonthlyPrice, freeTrialDays: pricing.platform.freeTrialDays });
+    setDForm({ name: '', description: '', icon: 'Stethoscope', doctorEmail: '', centerId: '', activationType: 'paid', subscriptionPrice: pricing.platform.deptMonthlyPrice, freeTrialDays: pricing.trial?.trialDays || 10 });
     setAForm({ fullName: '', username: '', password: '', phone: '', email: '' });
     showMsg('تم إنشاء القسم بنجاح');
   };
@@ -1113,7 +1113,7 @@ export default function AdminDashboard() {
                     <Input type="number" min={0} value={customPrices.platformTrial} onChange={e => setCustomPrices({ ...customPrices, platformTrial: Number(e.target.value) })} />
                   </div>
                 </div>
-                <p className="text-xs text-teal-600 mt-2">السعر العام: {pricing.platform.centerMonthlyPrice.toLocaleString()} د.ع | الفترة العامة: {pricing.platform.freeTrialDays} يوم</p>
+                <p className="text-xs text-teal-600 mt-2">السعر العام: {pricing.platform.centerMonthlyPrice.toLocaleString()} د.ع | الفترة العامة: {pricing.trial?.trialDays || 10} يوم</p>
               </div>
               {/* Appearance Pricing */}
               <div className="bg-purple-50 p-4 rounded-xl border border-purple-200">
