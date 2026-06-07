@@ -1,8 +1,22 @@
 // ======== Unified Data Storage ========
-// Uses localStorage as PRIMARY data source (Firebase disabled for now)
-// All reads/writes go through localStorage with event broadcasting
+// PRIMARY: localStorage (fast, sync, UI-friendly)
+// SYNC: Firebase Firestore (cross-device sync in background)
+//
+// How it works:
+// - All reads: from localStorage (immediate, no async)
+// - All writes: to localStorage + Firestore (background)
+// - On load: Firestore data overwrites localStorage (get other devices' changes)
+// - Real-time: onSnapshot updates localStorage when other devices change data
 
-import type { Center, Department, PricingDefaults, Admin, AdminAnnouncement, AppearanceVisibilitySettings, FeaturedEntity, PaymentMethodsSettings } from '@/types/linex';
+import { db } from '@/lib/firebase';
+import {
+  doc, setDoc, getDoc, deleteDoc, collection, getDocs, onSnapshot,
+  type DocumentData
+} from 'firebase/firestore';
+import type {
+  Center, Department, PricingDefaults, Admin, AdminAnnouncement,
+  AppearanceVisibilitySettings, FeaturedEntity, PaymentMethodsSettings
+} from '@/types/linex';
 
 // ======== LocalStorage Keys ========
 const KEYS = {
@@ -15,33 +29,178 @@ const KEYS = {
   FEATURED: 'linex_featured',
   PAYMENTS: 'linex_payment_methods',
   ANNOUNCEMENTS: 'linex_announcements',
-  LOGS: 'linex_logs',
 };
 
-// ======== Generic Helpers ========
-function getItem<T>(key: string, fallback: T): T {
-  try {
-    const s = localStorage.getItem(key);
-    if (s) return JSON.parse(s);
-  } catch { /* ignore */ }
+// Check if Firestore is available
+const hasFirestore = () => !!db;
+
+// ======== localStorage Helpers ========
+function lsGet<T>(key: string, fallback: T): T {
+  try { const s = localStorage.getItem(key); if (s) return JSON.parse(s); } catch { /* ignore */ }
   return fallback;
 }
-
-function setItem(key: string, value: unknown): void {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ }
+function lsSet(key: string, val: unknown): void {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* ignore */ }
 }
-
-function removeItem(key: string): void {
+function lsRemove(key: string): void {
   try { localStorage.removeItem(key); } catch { /* ignore */ }
 }
-
-function broadcastUpdate(key: string): void {
+function broadcast(key: string): void {
   window.dispatchEvent(new StorageEvent('storage', { key, newValue: localStorage.getItem(key) }));
 }
 
-// ======== Admins ========
+// ======== Firestore Helpers (background) ========
+async function fsSet(collection: string, id: string, data: DocumentData): Promise<void> {
+  if (!hasFirestore()) return;
+  try { await setDoc(doc(db!, collection, id), data); } catch { /* silent fail */ }
+}
+
+async function fsGetDoc<T>(collection: string, id: string): Promise<T | null> {
+  if (!hasFirestore()) return null;
+  try {
+    const snap = await getDoc(doc(db!, collection, id));
+    return snap.exists() ? (snap.data() as T) : null;
+  } catch { return null; }
+}
+
+async function fsGetCollection<T>(collectionName: string): Promise<T[]> {
+  if (!hasFirestore()) return [];
+  try {
+    const snap = await getDocs(collection(db!, collectionName));
+    return snap.docs.map(d => ({ ...d.data(), id: d.id } as T));
+  } catch { return []; }
+}
+
+async function fsDel(collection: string, id: string): Promise<void> {
+  if (!hasFirestore()) return;
+  try { await deleteDoc(doc(db!, collection, id)); } catch { /* silent fail */ }
+}
+
+// ======== SYNC: Firestore -> localStorage ========
+// Call this ONCE on app load to pull data from Firestore
+export async function syncFromFirestore(): Promise<void> {
+  if (!hasFirestore()) return;
+
+  // Pricing
+  const pricing = await fsGetDoc<PricingDefaults>('pricing', 'default');
+  if (pricing && pricing.trial) {
+    lsSet(KEYS.PRICING, pricing);
+  }
+
+  // Visibility
+  const vis = await fsGetDoc<AppearanceVisibilitySettings>('appearanceVisibility', 'default');
+  if (vis) {
+    lsSet(KEYS.VISIBILITY, vis);
+  }
+
+  // Centers
+  const centers = await fsGetCollection<Center>('centers');
+  if (centers.length > 0) {
+    lsSet(KEYS.CENTERS, centers);
+  }
+
+  // Departments
+  const depts = await fsGetCollection<Department>('departments');
+  if (depts.length > 0) {
+    lsSet(KEYS.DEPARTMENTS, depts);
+  }
+
+  // Admins
+  const admins = await fsGetCollection<Admin>('admins');
+  if (admins.length > 0) {
+    lsSet(KEYS.ADMINS, admins);
+  }
+
+  // Announcements
+  const anns = await fsGetCollection<AdminAnnouncement>('announcements');
+  if (anns.length > 0) {
+    lsSet(KEYS.ANNOUNCEMENTS, anns);
+  }
+
+  // Featured
+  const featured = await fsGetCollection<FeaturedEntity>('featured');
+  if (featured.length > 0) {
+    lsSet(KEYS.FEATURED, featured);
+  }
+
+  // Payment methods
+  const payments = await fsGetDoc<PaymentMethodsSettings>('paymentMethods', 'default');
+  if (payments) {
+    lsSet(KEYS.PAYMENTS, payments);
+  }
+}
+
+// ======== REAL-TIME LISTENERS ========
+// Call this to start listening for changes from other devices
+export function startRealtimeSync(): () => void {
+  if (!hasFirestore()) return () => {};
+
+  const unsubscribers: (() => void)[] = [];
+
+  // Listen for pricing changes
+  try {
+    const unsub = onSnapshot(doc(db!, 'pricing', 'default'), (snap) => {
+      if (snap.exists()) {
+        lsSet(KEYS.PRICING, snap.data());
+        broadcast(KEYS.PRICING);
+      }
+    });
+    unsubscribers.push(unsub);
+  } catch { /* ignore */ }
+
+  // Listen for centers changes
+  try {
+    const unsub = onSnapshot(collection(db!, 'centers'), (snap) => {
+      const data = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+      if (data.length > 0) {
+        lsSet(KEYS.CENTERS, data);
+        broadcast(KEYS.CENTERS);
+      }
+    });
+    unsubscribers.push(unsub);
+  } catch { /* ignore */ }
+
+  // Listen for departments changes
+  try {
+    const unsub = onSnapshot(collection(db!, 'departments'), (snap) => {
+      const data = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+      if (data.length > 0) {
+        lsSet(KEYS.DEPARTMENTS, data);
+        broadcast(KEYS.DEPARTMENTS);
+      }
+    });
+    unsubscribers.push(unsub);
+  } catch { /* ignore */ }
+
+  // Listen for visibility changes
+  try {
+    const unsub = onSnapshot(doc(db!, 'appearanceVisibility', 'default'), (snap) => {
+      if (snap.exists()) {
+        lsSet(KEYS.VISIBILITY, snap.data());
+        broadcast(KEYS.VISIBILITY);
+      }
+    });
+    unsubscribers.push(unsub);
+  } catch { /* ignore */ }
+
+  // Listen for admins changes
+  try {
+    const unsub = onSnapshot(collection(db!, 'admins'), (snap) => {
+      const data = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+      if (data.length > 0) {
+        lsSet(KEYS.ADMINS, data);
+        broadcast(KEYS.ADMINS);
+      }
+    });
+    unsubscribers.push(unsub);
+  } catch { /* ignore */ }
+
+  return () => unsubscribers.forEach(u => u());
+}
+
+// ======== ADMINS (localStorage + Firestore background) ========
 export function getAdmins(): Admin[] {
-  return getItem<Admin[]>(KEYS.ADMINS, []);
+  return lsGet<Admin[]>(KEYS.ADMINS, []);
 }
 
 export function saveAdmin(admin: Admin): void {
@@ -49,33 +208,36 @@ export function saveAdmin(admin: Admin): void {
   const idx = admins.findIndex(a => a.id === admin.id);
   if (idx >= 0) admins[idx] = admin;
   else admins.push(admin);
-  setItem(KEYS.ADMINS, admins);
-  broadcastUpdate(KEYS.ADMINS);
+  lsSet(KEYS.ADMINS, admins);
+  broadcast(KEYS.ADMINS);
+  // Sync to Firestore in background
+  fsSet('admins', admin.id, admin);
 }
 
 export function deleteAdmin(id: string): void {
-  setItem(KEYS.ADMINS, getAdmins().filter(a => a.id !== id));
-  broadcastUpdate(KEYS.ADMINS);
+  lsSet(KEYS.ADMINS, getAdmins().filter(a => a.id !== id));
+  broadcast(KEYS.ADMINS);
+  fsDel('admins', id);
 }
 
-// ======== Auth ========
+// ======== AUTH (localStorage only - device specific) ========
 export function getAuth(): { isAuthenticated: boolean; admin: Admin | null } {
-  return getItem<{ isAuthenticated: boolean; admin: Admin | null }>(KEYS.AUTH, { isAuthenticated: false, admin: null });
+  return lsGet<{ isAuthenticated: boolean; admin: Admin | null }>(KEYS.AUTH, { isAuthenticated: false, admin: null });
 }
 
 export function setAuth(auth: { isAuthenticated: boolean; admin: Admin | null }): void {
-  setItem(KEYS.AUTH, auth);
-  broadcastUpdate(KEYS.AUTH);
+  lsSet(KEYS.AUTH, auth);
+  broadcast(KEYS.AUTH);
 }
 
 export function clearAuth(): void {
-  removeItem(KEYS.AUTH);
-  broadcastUpdate(KEYS.AUTH);
+  lsRemove(KEYS.AUTH);
+  broadcast(KEYS.AUTH);
 }
 
-// ======== Centers ========
+// ======== CENTERS (localStorage + Firestore background) ========
 export function getCenters(): Center[] {
-  return getItem<Center[]>(KEYS.CENTERS, []);
+  return lsGet<Center[]>(KEYS.CENTERS, []);
 }
 
 export function saveCenter(center: Center): void {
@@ -83,18 +245,20 @@ export function saveCenter(center: Center): void {
   const idx = centers.findIndex(c => c.id === center.id);
   if (idx >= 0) centers[idx] = center;
   else centers.push(center);
-  setItem(KEYS.CENTERS, centers);
-  broadcastUpdate(KEYS.CENTERS);
+  lsSet(KEYS.CENTERS, centers);
+  broadcast(KEYS.CENTERS);
+  fsSet('centers', center.id, center);
 }
 
 export function removeCenter(id: string): void {
-  setItem(KEYS.CENTERS, getCenters().filter(c => c.id !== id));
-  broadcastUpdate(KEYS.CENTERS);
+  lsSet(KEYS.CENTERS, getCenters().filter(c => c.id !== id));
+  broadcast(KEYS.CENTERS);
+  fsDel('centers', id);
 }
 
-// ======== Departments ========
+// ======== DEPARTMENTS (localStorage + Firestore background) ========
 export function getDepartments(): Department[] {
-  return getItem<Department[]>(KEYS.DEPARTMENTS, []);
+  return lsGet<Department[]>(KEYS.DEPARTMENTS, []);
 }
 
 export function saveDepartment(dept: Department): void {
@@ -102,18 +266,20 @@ export function saveDepartment(dept: Department): void {
   const idx = depts.findIndex(d => d.id === dept.id);
   if (idx >= 0) depts[idx] = dept;
   else depts.push(dept);
-  setItem(KEYS.DEPARTMENTS, depts);
-  broadcastUpdate(KEYS.DEPARTMENTS);
+  lsSet(KEYS.DEPARTMENTS, depts);
+  broadcast(KEYS.DEPARTMENTS);
+  fsSet('departments', dept.id, dept);
 }
 
 export function removeDepartment(id: string): void {
-  setItem(KEYS.DEPARTMENTS, getDepartments().filter(d => d.id !== id));
-  broadcastUpdate(KEYS.DEPARTMENTS);
+  lsSet(KEYS.DEPARTMENTS, getDepartments().filter(d => d.id !== id));
+  broadcast(KEYS.DEPARTMENTS);
+  fsDel('departments', id);
 }
 
-// ======== Pricing ========
+// ======== PRICING (localStorage + Firestore background) ========
 export function getPricing(): PricingDefaults {
-  return getItem<PricingDefaults>(KEYS.PRICING, {
+  return lsGet<PricingDefaults>(KEYS.PRICING, {
     platform: { centerMonthlyPrice: 50000, deptMonthlyPrice: 25000, freeTrialDays: 7 },
     appearance: { monthlyPrice: 10000, dailyPrice: 500, freeTrialDays: 3 },
     trial: { enabled: true, trialDays: 10, showNotice: true, noticeText: '' },
@@ -121,23 +287,25 @@ export function getPricing(): PricingDefaults {
 }
 
 export function savePricing(pricing: PricingDefaults): void {
-  setItem(KEYS.PRICING, pricing);
-  broadcastUpdate(KEYS.PRICING);
+  lsSet(KEYS.PRICING, pricing);
+  broadcast(KEYS.PRICING);
+  fsSet('pricing', 'default', pricing);
 }
 
-// ======== Appearance Visibility ========
+// ======== APPEARANCE VISIBILITY (localStorage + Firestore background) ========
 export function getVisibility(): AppearanceVisibilitySettings {
-  return getItem<AppearanceVisibilitySettings>(KEYS.VISIBILITY, { enabled: false, target: 'all' });
+  return lsGet<AppearanceVisibilitySettings>(KEYS.VISIBILITY, { enabled: false, target: 'all' });
 }
 
 export function saveVisibility(settings: AppearanceVisibilitySettings): void {
-  setItem(KEYS.VISIBILITY, settings);
-  broadcastUpdate(KEYS.VISIBILITY);
+  lsSet(KEYS.VISIBILITY, settings);
+  broadcast(KEYS.VISIBILITY);
+  fsSet('appearanceVisibility', 'default', settings);
 }
 
-// ======== Featured ========
+// ======== FEATURED (localStorage + Firestore background) ========
 export function getFeatured(): FeaturedEntity[] {
-  return getItem<FeaturedEntity[]>(KEYS.FEATURED, []);
+  return lsGet<FeaturedEntity[]>(KEYS.FEATURED, []);
 }
 
 export function saveFeatured(entity: FeaturedEntity): void {
@@ -145,16 +313,18 @@ export function saveFeatured(entity: FeaturedEntity): void {
   const idx = entities.findIndex(e => e.id === entity.id);
   if (idx >= 0) entities[idx] = entity;
   else entities.push(entity);
-  setItem(KEYS.FEATURED, entities);
+  lsSet(KEYS.FEATURED, entities);
+  fsSet('featured', entity.id, entity);
 }
 
 export function removeFeatured(id: string): void {
-  setItem(KEYS.FEATURED, getFeatured().filter(e => e.id !== id));
+  lsSet(KEYS.FEATURED, getFeatured().filter(e => e.id !== id));
+  fsDel('featured', id);
 }
 
-// ======== Payment Methods ========
+// ======== PAYMENT METHODS (localStorage + Firestore background) ========
 export function getPayments(): PaymentMethodsSettings {
-  return getItem<PaymentMethodsSettings>(KEYS.PAYMENTS, {
+  return lsGet<PaymentMethodsSettings>(KEYS.PAYMENTS, {
     methods: [
       { id: 'zaincash', name: 'ZainCash', nameAr: 'زين كاش', enabled: true, icon: 'Smartphone', description: 'الدفع عبر محفظة زين كاش', recipientName: '', recipientNumber: '', recipientPhone: '', recipientBank: '', instructions: 'أرسل المبلغ إلى رقم المحفظة أدناه، ثم أدخل رقم العملية' },
       { id: 'asia', name: 'AsiaHawala', nameAr: 'آسيا حوالة', enabled: true, icon: 'Building2', description: 'الدفع عبر آسيا حوالة', recipientName: '', recipientNumber: '', recipientPhone: '', recipientBank: '', instructions: 'أرسل المبلغ عبر آسيا حوالة إلى الرقم أدناه' },
@@ -168,12 +338,13 @@ export function getPayments(): PaymentMethodsSettings {
 }
 
 export function savePayments(settings: PaymentMethodsSettings): void {
-  setItem(KEYS.PAYMENTS, settings);
+  lsSet(KEYS.PAYMENTS, settings);
+  fsSet('paymentMethods', 'default', settings);
 }
 
-// ======== Announcements ========
+// ======== ANNOUNCEMENTS (localStorage + Firestore background) ========
 export function getAnnouncements(): AdminAnnouncement[] {
-  return getItem<AdminAnnouncement[]>(KEYS.ANNOUNCEMENTS, []);
+  return lsGet<AdminAnnouncement[]>(KEYS.ANNOUNCEMENTS, []);
 }
 
 export function saveAnnouncement(ann: AdminAnnouncement): void {
@@ -181,18 +352,19 @@ export function saveAnnouncement(ann: AdminAnnouncement): void {
   const idx = anns.findIndex(a => a.id === ann.id);
   if (idx >= 0) anns[idx] = ann;
   else anns.push(ann);
-  setItem(KEYS.ANNOUNCEMENTS, anns);
+  lsSet(KEYS.ANNOUNCEMENTS, anns);
+  fsSet('announcements', ann.id, ann);
 }
 
 export function removeAnnouncement(id: string): void {
-  setItem(KEYS.ANNOUNCEMENTS, getAnnouncements().filter(a => a.id !== id));
+  lsSet(KEYS.ANNOUNCEMENTS, getAnnouncements().filter(a => a.id !== id));
+  fsDel('announcements', id);
 }
 
 // ======== Seed Defaults ========
 export function seedDefaults(): void {
-  // Only seed if data doesn't exist
   if (!localStorage.getItem(KEYS.ADMINS)) {
-    setItem(KEYS.ADMINS, [{
+    lsSet(KEYS.ADMINS, [{
       id: 'super-admin-linex',
       fullName: 'المدير العام',
       username: 'admin@linex.com',
@@ -205,16 +377,16 @@ export function seedDefaults(): void {
     }]);
   }
   if (!localStorage.getItem(KEYS.PRICING)) {
-    setItem(KEYS.PRICING, {
+    lsSet(KEYS.PRICING, {
       platform: { centerMonthlyPrice: 50000, deptMonthlyPrice: 25000, freeTrialDays: 7 },
       appearance: { monthlyPrice: 10000, dailyPrice: 500, freeTrialDays: 3 },
       trial: { enabled: true, trialDays: 10, showNotice: true, noticeText: '' },
     });
   }
   if (!localStorage.getItem(KEYS.VISIBILITY)) {
-    setItem(KEYS.VISIBILITY, { enabled: false, target: 'all' });
+    lsSet(KEYS.VISIBILITY, { enabled: false, target: 'all' });
   }
 }
 
-// ======== Export keys for external use ========
+// ======== Export keys ========
 export { KEYS as STORAGE_KEYS };

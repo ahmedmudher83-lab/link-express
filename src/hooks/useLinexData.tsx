@@ -10,7 +10,7 @@ import {
   getFeatured, saveFeatured, removeFeatured,
   getPayments, savePayments,
   getAnnouncements, saveAnnouncement, removeAnnouncement,
-  seedDefaults,
+  seedDefaults, syncFromFirestore, startRealtimeSync,
   STORAGE_KEYS,
 } from '@/services/dataStorage';
 
@@ -91,17 +91,38 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
   const [appearanceVisibility, setAppearanceVisibility] = useState<AppearanceVisibilitySettings>(getVisibility());
   const [featuredEntities, setFeaturedEntities] = useState<FeaturedEntity[]>(getFeatured());
 
-  // Load everything from localStorage on mount
+  // Load everything from localStorage on mount + sync from Firestore
   useEffect(() => {
-    seedDefaults();
-    setCenters(getCenters());
-    setDepartments(getDepartments());
-    setPricing(getPricing());
-    setPaymentMethods(getPayments());
-    setAnnouncements(getAnnouncements());
-    setAppearanceVisibility(getVisibility());
-    setFeaturedEntities(getFeatured());
-    setLoading(false);
+    const init = async () => {
+      // Step 1: Seed defaults + load from localStorage (immediate)
+      seedDefaults();
+      setCenters(getCenters());
+      setDepartments(getDepartments());
+      setPricing(getPricing());
+      setPaymentMethods(getPayments());
+      setAnnouncements(getAnnouncements());
+      setAppearanceVisibility(getVisibility());
+      setFeaturedEntities(getFeatured());
+      setLoading(false);
+
+      // Step 2: Pull data from Firestore (other devices' changes)
+      await syncFromFirestore();
+
+      // Step 3: Reload from localStorage (now updated from Firestore)
+      setCenters(getCenters());
+      setDepartments(getDepartments());
+      setPricing(getPricing());
+      setPaymentMethods(getPayments());
+      setAnnouncements(getAnnouncements());
+      setAppearanceVisibility(getVisibility());
+      setFeaturedEntities(getFeatured());
+
+      // Step 4: Start real-time sync (listen for future changes from other devices)
+      const unsub = startRealtimeSync();
+      return unsub;
+    };
+
+    init();
 
     // Listen for cross-tab changes
     const handleStorage = (e: StorageEvent) => {
