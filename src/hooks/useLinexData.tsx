@@ -9,9 +9,8 @@ import {
   getVisibility, saveVisibility,
   getFeatured, saveFeatured, removeFeatured,
   getPayments, savePayments,
-  getAnnouncements, saveAnnouncement, removeAnnouncement,
-  seedDefaults,
-  STORAGE_KEYS,
+  getAnnouncements, saveAnnouncement, removeAnnouncement as removeAnnouncementFromStorage,
+  seedDefaults, subscribeToChanges,
 } from '@/services/dataStorage';
 
 const DEFAULT_PAYMENT_METHODS: PaymentMethodsSettings = {
@@ -40,41 +39,33 @@ interface LinexDataContext {
   pricing: PricingDefaults;
   paymentMethods: PaymentMethodsSettings;
   announcements: AdminAnnouncement[];
-  // Actions
-  addCenter: (c: Center) => void;
-  closeCenter: (id: string) => void;
-  addDepartment: (d: Department) => void;
-  closeDepartment: (id: string) => void;
-  updatePricing: (p: PricingDefaults) => void;
-  renewCenter: (id: string, months: number) => void;
-  renewDepartment: (id: string, months: number) => void;
-  // Getters
+  addCenter: (c: Center) => Promise<void>;
+  closeCenter: (id: string) => Promise<void>;
+  addDepartment: (d: Department) => Promise<void>;
+  closeDepartment: (id: string) => Promise<void>;
+  updatePricing: (p: PricingDefaults) => Promise<void>;
+  renewCenter: (id: string, months: number) => Promise<void>;
+  renewDepartment: (id: string, months: number) => Promise<void>;
   getCenterById: (id: string) => Center | undefined;
   getActiveCenters: () => Center[];
   getDepartmentsByCenter: (centerId: string) => Department[];
   getIndependentDepartments: () => Department[];
   getDepartmentById: (id: string) => Department | undefined;
   getActiveDepartments: () => Department[];
-  // Logs
   addLog: (log: ActivityLog) => void;
-  // Payment
-  updatePaymentMethods: (p: PaymentMethodsSettings) => void;
+  updatePaymentMethods: (p: PaymentMethodsSettings) => Promise<void>;
   getEnabledPaymentMethods: () => PaymentMethodConfig[];
   togglePaymentMethod: (id: string) => void;
-  // Announcements
-  addAnnouncement: (a: AdminAnnouncement) => void;
-  removeAnnouncement: (id: string) => void;
+  addAnnouncement: (a: AdminAnnouncement) => Promise<void>;
+  removeAnnouncement: (id: string) => Promise<void>;
   getActiveAnnouncements: (adminId: string) => AdminAnnouncement[];
-  // Appearance
   appearanceVisibility: AppearanceVisibilitySettings;
-  updateAppearanceVisibility: (s: AppearanceVisibilitySettings) => void;
+  updateAppearanceVisibility: (s: AppearanceVisibilitySettings) => Promise<void>;
   shouldShowAppearanceTab: (entityType: 'center' | 'department') => boolean;
-  // Featured
   featuredEntities: FeaturedEntity[];
-  addFeaturedEntity: (e: FeaturedEntity) => void;
-  removeFeaturedEntity: (id: string) => void;
+  addFeaturedEntity: (e: FeaturedEntity) => Promise<void>;
+  removeFeaturedEntity: (id: string) => Promise<void>;
   getActiveFeatured: () => FeaturedEntity[];
-  // Refresh
   refreshStatuses: () => void;
 }
 
@@ -85,74 +76,92 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
   const [centers, setCenters] = useState<Center[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [logs] = useState<ActivityLog[]>([]);
-  const [pricing, setPricing] = useState<PricingDefaults>(getPricing());
+  const [pricing, setPricing] = useState<PricingDefaults>({
+    platform: { centerMonthlyPrice: 50000, deptMonthlyPrice: 25000, freeTrialDays: 7 },
+    appearance: { monthlyPrice: 10000, dailyPrice: 500, freeTrialDays: 3 },
+    trial: { enabled: true, trialDays: 10, showNotice: true, noticeText: '' },
+  });
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodsSettings>(DEFAULT_PAYMENT_METHODS);
   const [announcements, setAnnouncements] = useState<AdminAnnouncement[]>([]);
-  const [appearanceVisibility, setAppearanceVisibility] = useState<AppearanceVisibilitySettings>(getVisibility());
-  const [featuredEntities, setFeaturedEntities] = useState<FeaturedEntity[]>(getFeatured());
+  const [appearanceVisibility, setAppearanceVisibility] = useState<AppearanceVisibilitySettings>({ enabled: false, target: 'all' });
+  const [featuredEntities, setFeaturedEntities] = useState<FeaturedEntity[]>([]);
 
-  // Load everything from localStorage on mount
+  // Load everything from Firestore on mount
   useEffect(() => {
-    seedDefaults();
-    setCenters(getCenters());
-    setDepartments(getDepartments());
-    setPricing(getPricing());
-    setPaymentMethods(getPayments());
-    setAnnouncements(getAnnouncements());
-    setAppearanceVisibility(getVisibility());
-    setFeaturedEntities(getFeatured());
-    setLoading(false);
-
-    // Listen for cross-tab changes
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEYS.CENTERS) setCenters(getCenters());
-      if (e.key === STORAGE_KEYS.DEPARTMENTS) setDepartments(getDepartments());
-      if (e.key === STORAGE_KEYS.PRICING) setPricing(getPricing());
-      if (e.key === STORAGE_KEYS.VISIBILITY) setAppearanceVisibility(getVisibility());
+    const loadAll = async () => {
+      await seedDefaults();
+      const [c, d, p, pm, anns, av, fe] = await Promise.all([
+        getCenters(), getDepartments(), getPricing(),
+        getPayments(), getAnnouncements(), getVisibility(), getFeatured(),
+      ]);
+      setCenters(c);
+      setDepartments(d);
+      if (p) setPricing(p);
+      if (pm) setPaymentMethods(pm);
+      setAnnouncements(anns);
+      setAppearanceVisibility(av);
+      setFeaturedEntities(fe);
+      setLoading(false);
     };
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
+    loadAll();
+
+    // Subscribe to real-time changes
+    const unsubCenters = subscribeToChanges('centers', (data) => {
+      setCenters(data as Center[]);
+    });
+    const unsubDepts = subscribeToChanges('departments', (data) => {
+      setDepartments(data as Department[]);
+    });
+    const unsubPricing = subscribeToChanges('pricing', (data) => {
+      if (data.length > 0) setPricing(data[0] as PricingDefaults);
+    });
+    const unsubVis = subscribeToChanges('appearanceVisibility', (data) => {
+      if (data.length > 0) setAppearanceVisibility(data[0] as AppearanceVisibilitySettings);
+    });
+
+    return () => {
+      unsubCenters(); unsubDepts(); unsubPricing(); unsubVis();
+    };
   }, []);
 
   // ======== Center Operations ========
-  const addCenter = useCallback((c: Center) => {
+  const addCenter = useCallback(async (c: Center) => {
     const exp = computeExpiry(c.createdAt, c.freeTrialDays);
     const withExp = { ...c, expiresAt: exp, status: computeStatus(true, c.createdAt, exp, c.isPaid, c.freeTrialDays) as Center['status'] };
-    saveCenter(withExp);
-    setCenters(getCenters());
+    await saveCenter(withExp);
+    setCenters(await getCenters());
   }, []);
 
-  const closeCenter = useCallback((id: string) => {
-    // Remove center and all related departments
-    removeCenter(id);
-    const depts = getDepartments().filter(d => d.centerId === id);
-    depts.forEach(d => removeDepartment(d.id));
-    setCenters(getCenters());
-    setDepartments(getDepartments());
+  const closeCenter = useCallback(async (id: string) => {
+    await removeCenter(id);
+    const depts = (await getDepartments()).filter(d => d.centerId === id);
+    await Promise.all(depts.map(d => removeDepartment(d.id)));
+    setCenters(await getCenters());
+    setDepartments(await getDepartments());
   }, []);
 
   // ======== Department Operations ========
-  const addDepartment = useCallback((d: Department) => {
+  const addDepartment = useCallback(async (d: Department) => {
     const exp = computeExpiry(d.createdAt, d.freeTrialDays);
     const withExp = { ...d, expiresAt: exp, status: computeStatus(true, d.createdAt, exp, d.isPaid, d.freeTrialDays) as Department['status'] };
-    saveDepartment(withExp);
-    setDepartments(getDepartments());
+    await saveDepartment(withExp);
+    setDepartments(await getDepartments());
   }, []);
 
-  const closeDepartment = useCallback((id: string) => {
-    removeDepartment(id);
-    setDepartments(getDepartments());
+  const closeDepartment = useCallback(async (id: string) => {
+    await removeDepartment(id);
+    setDepartments(await getDepartments());
   }, []);
 
-  // ======== Pricing - NOW ACTUALLY SAVES ========
-  const updatePricing = useCallback((p: PricingDefaults) => {
-    savePricing(p);
-    setPricing({ ...p }); // Force new reference
+  // ======== Pricing - NOW SAVES TO FIRESTORE ========
+  const updatePricing = useCallback(async (p: PricingDefaults) => {
+    await savePricing(p);
+    setPricing({ ...p });
   }, []);
 
   // ======== Renewal ========
-  const renewCenter = useCallback((id: string, months: number) => {
-    const all = getCenters();
+  const renewCenter = useCallback(async (id: string, months: number) => {
+    const all = await getCenters();
     const target = all.find(c => c.id === id);
     if (!target) return;
     const now = new Date(), cur = new Date(target.expiresAt);
@@ -160,12 +169,12 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
     const ne = new Date(base);
     ne.setMonth(ne.getMonth() + months);
     const updated = { ...target, isPaid: true, expiresAt: ne.toISOString(), status: computeStatus(true, target.createdAt, ne.toISOString(), true, target.freeTrialDays) as Center['status'] };
-    saveCenter(updated);
-    setCenters(getCenters());
+    await saveCenter(updated);
+    setCenters(await getCenters());
   }, []);
 
-  const renewDepartment = useCallback((id: string, months: number) => {
-    const all = getDepartments();
+  const renewDepartment = useCallback(async (id: string, months: number) => {
+    const all = await getDepartments();
     const target = all.find(d => d.id === id);
     if (!target) return;
     const now = new Date(), cur = new Date(target.expiresAt);
@@ -173,8 +182,8 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
     const ne = new Date(base);
     ne.setMonth(ne.getMonth() + months);
     const updated = { ...target, isPaid: true, expiresAt: ne.toISOString(), status: computeStatus(true, target.createdAt, ne.toISOString(), true, target.freeTrialDays) as Department['status'] };
-    saveDepartment(updated);
-    setDepartments(getDepartments());
+    await saveDepartment(updated);
+    setDepartments(await getDepartments());
   }, []);
 
   // ======== Getters ========
@@ -186,11 +195,11 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
   const getActiveDepartments = useCallback(() => departments.filter(d => d.isActive && d.status !== 'expired'), [departments]);
 
   // ======== Logs ========
-  const addLog = useCallback((log: ActivityLog) => { /* logs not persisted yet */ }, []);
+  const addLog = useCallback((log: ActivityLog) => {}, []);
 
   // ======== Payment ========
-  const updatePaymentMethods = useCallback((p: PaymentMethodsSettings) => {
-    savePayments(p);
+  const updatePaymentMethods = useCallback(async (p: PaymentMethodsSettings) => {
+    await savePayments(p);
     setPaymentMethods({ ...p });
   }, []);
 
@@ -207,14 +216,14 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ======== Announcements ========
-  const addAnnouncement = useCallback((a: AdminAnnouncement) => {
-    saveAnnouncement(a);
-    setAnnouncements(getAnnouncements());
+  const addAnnouncement = useCallback(async (a: AdminAnnouncement) => {
+    await saveAnnouncement(a);
+    setAnnouncements(await getAnnouncements());
   }, []);
 
-  const removeAnnouncement = useCallback((id: string) => {
-    removeAnnouncement_(id);
-    setAnnouncements(getAnnouncements());
+  const removeAnnouncement = useCallback(async (id: string) => {
+    await removeAnnouncementFromStorage(id);
+    setAnnouncements(await getAnnouncements());
   }, []);
 
   const getActiveAnnouncements = useCallback((adminId: string) => {
@@ -226,8 +235,8 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
   }, [announcements]);
 
   // ======== Appearance ========
-  const updateAppearanceVisibility = useCallback((s: AppearanceVisibilitySettings) => {
-    saveVisibility(s);
+  const updateAppearanceVisibility = useCallback(async (s: AppearanceVisibilitySettings) => {
+    await saveVisibility(s);
     setAppearanceVisibility({ ...s });
   }, []);
 
@@ -240,14 +249,14 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
   }, [appearanceVisibility]);
 
   // ======== Featured ========
-  const addFeaturedEntity = useCallback((e: FeaturedEntity) => {
-    saveFeatured(e);
-    setFeaturedEntities(getFeatured());
+  const addFeaturedEntity = useCallback(async (e: FeaturedEntity) => {
+    await saveFeatured(e);
+    setFeaturedEntities(await getFeatured());
   }, []);
 
-  const removeFeaturedEntity = useCallback((id: string) => {
-    removeFeatured(id);
-    setFeaturedEntities(getFeatured());
+  const removeFeaturedEntity = useCallback(async (id: string) => {
+    await removeFeatured(id);
+    setFeaturedEntities(await getFeatured());
   }, []);
 
   const getActiveFeatured = useCallback((): FeaturedEntity[] => {
