@@ -37,7 +37,9 @@ export default function LandingPage() {
     if (!adminForm.username || !adminForm.password) { showMsg('يرجى إدخال اسم المستخدم وكلمة المرور'); return; }
 
     const adminId = 'admin-' + Date.now();
-    const trialDays = pricing.trial?.enabled ? (pricing.trial?.trialDays || 10) : 0;
+    const trialDays = pricing && pricing.trial && pricing.trial.enabled ? (pricing.trial.trialDays || 10) : 0;
+    const centerPrice = pricing && pricing.platform ? pricing.platform.centerMonthlyPrice : 50000;
+    const deptPrice = pricing && pricing.platform ? pricing.platform.deptMonthlyPrice : 25000;
     const centerId = 'center-' + Date.now();
     const deptId = 'dept-' + Date.now();
 
@@ -76,7 +78,7 @@ export default function LandingPage() {
         doctors: [],
         adminId,
         activationType: 'paid',
-        subscriptionPrice: pricing.platform.centerMonthlyPrice,
+        subscriptionPrice: centerPrice,
         freeTrialDays: trialDays,
         createdAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + trialDays * 86400000).toISOString(),
@@ -119,7 +121,7 @@ export default function LandingPage() {
         centerId: dForm.centerId || null,
         adminId,
         activationType: 'paid',
-        subscriptionPrice: pricing.platform.deptMonthlyPrice,
+        subscriptionPrice: deptPrice,
         freeTrialDays: trialDays,
         createdAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + trialDays * 86400000).toISOString(),
@@ -240,25 +242,25 @@ export default function LandingPage() {
             {step === 2 && (
               <div className="space-y-4">
                 {/* Trial Period Notice */}
-                {pricing?.trial?.enabled && (
+                {pricing && pricing.trial && pricing.trial.enabled ? (
                   <div className="bg-teal-50 p-4 rounded-xl border border-teal-200">
                     <p className="text-sm text-teal-700 flex items-center gap-2">
                       <CheckCircle2 className="w-5 h-5 shrink-0" />
-                      <span>سجل الآن واحصل على <strong>{pricing?.trial?.trialDays || 10} أيام</strong> مجاناً كفترة تجريبية</span>
+                      <span>سجل الآن واحصل على <strong>{pricing.trial.trialDays || 10} أيام</strong> مجاناً كفترة تجريبية</span>
                     </p>
                   </div>
-                )}
+                ) : null}
 
                 {/* Subscription Price - Always Paid */}
                 <div className="bg-amber-50 p-4 rounded-xl border border-amber-200">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-gray-900">الاشتراك الشهري</span>
-                    <Badge className="bg-amber-100 text-amber-700 text-lg">
+                    <span className="bg-amber-100 text-amber-700 text-lg px-3 py-1 rounded-full font-bold">
                       {createType === 'center' 
-                        ? (pricing?.platform?.centerMonthlyPrice ?? 50000) 
-                        : (pricing?.platform?.deptMonthlyPrice ?? 25000)
+                        ? (pricing && pricing.platform ? pricing.platform.centerMonthlyPrice : 50000) 
+                        : (pricing && pricing.platform ? pricing.platform.deptMonthlyPrice : 25000)
                       } د.ع/شهر
-                    </Badge>
+                    </span>
                   </div>
                 </div>
 
