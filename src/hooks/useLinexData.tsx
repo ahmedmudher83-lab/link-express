@@ -94,7 +94,7 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
   // Load everything from localStorage on mount + sync from Firestore
   useEffect(() => {
     const init = async () => {
-      // Step 1: Seed defaults + load from localStorage (immediate)
+      // Step 1: Seed defaults + load from localStorage (immediate, no delay)
       seedDefaults();
       setCenters(getCenters());
       setDepartments(getDepartments());
@@ -105,21 +105,28 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
       setFeaturedEntities(getFeatured());
       setLoading(false);
 
-      // Step 2: Pull data from Firestore (other devices' changes)
-      await syncFromFirestore();
+      // Step 2: Try to pull data from Firestore (background, non-blocking)
+      try {
+        await syncFromFirestore();
+        // Reload from localStorage (now possibly updated from Firestore)
+        setCenters(getCenters());
+        setDepartments(getDepartments());
+        setPricing(getPricing());
+        setPaymentMethods(getPayments());
+        setAnnouncements(getAnnouncements());
+        setAppearanceVisibility(getVisibility());
+        setFeaturedEntities(getFeatured());
+      } catch {
+        // Firestore failed - localStorage data is already loaded, ignore
+      }
 
-      // Step 3: Reload from localStorage (now updated from Firestore)
-      setCenters(getCenters());
-      setDepartments(getDepartments());
-      setPricing(getPricing());
-      setPaymentMethods(getPayments());
-      setAnnouncements(getAnnouncements());
-      setAppearanceVisibility(getVisibility());
-      setFeaturedEntities(getFeatured());
-
-      // Step 4: Start real-time sync (listen for future changes from other devices)
-      const unsub = startRealtimeSync();
-      return unsub;
+      // Step 3: Start real-time sync (background, non-blocking)
+      try {
+        const unsub = startRealtimeSync();
+        return unsub;
+      } catch {
+        return () => {};
+      }
     };
 
     init();
