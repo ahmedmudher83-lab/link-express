@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useLinexData } from '@/hooks/useLinexData';
+import { saveAdmin, saveCenter, saveDepartment } from '@/services/dataStorage';
+import { sendOTP, verifyOTP, isGmail, isValidIraqPhone } from '@/services/firebaseAuthService';
 import type { ActivationType, Center, Department } from '@/types/linex';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -8,7 +10,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Lock, Plus, Phone, Mail, ExternalLink, CalendarDays,
-  X, Save, CheckCircle2, Stethoscope, Building2, Clock, MapPin
+  X, Save, CheckCircle2, Stethoscope, Building2, Clock, MapPin,
+  Shield, Smartphone, User
 } from 'lucide-react';
 
 export default function LandingPage() {
@@ -20,6 +23,15 @@ export default function LandingPage() {
   const [step, setStep] = useState(1);
   const [activationType, setActivationType] = useState<ActivationType>('paid');
   const [msg, setMsg] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // OTP state
+  const [otpStep, setOtpStep] = useState<'identifier' | 'verify'>('identifier');
+  const [identifier, setIdentifier] = useState('');
+  const [identifierType, setIdentifierType] = useState<'gmail' | 'phone'>('gmail');
+  const [otpCode, setOtpCode] = useState('');
+  const [otpCooldown, setOtpCooldown] = useState(0);
+  const [simulatedOTP, setSimulatedOTP] = useState('');
 
   const [cForm, setCForm] = useState({ name: '', address: '', phone: '', email: '' });
   const [dForm, setDForm] = useState({ name: '', description: '', doctorName: '', doctorEmail: '', doctorPhone: '', centerId: '' });
@@ -33,9 +45,32 @@ export default function LandingPage() {
     return c.appearanceType === 'paid';
   });
 
-  const handleCreate = () => {
-    if (!adminForm.username || !adminForm.password) { showMsg('يرجى إدخال اسم المستخدم وكلمة المرور'); return; }
+  // Validate Iraq phone number
+  const isValidPhone = (phone: string): boolean => {
+    return /^07\d{9}$/.test(phone.replace(/\s/g, ''));
+  };
 
+  const handleCreate = async () => {
+    // Validate required fields
+    if (!adminForm.username || !adminForm.password) {
+      showMsg('يرجى إدخال اسم المستخدم وكلمة المرور');
+      return;
+    }
+    if (adminForm.password.length < 6) {
+      showMsg('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
+      return;
+    }
+    // Validate phone
+    if (createType === 'center' && !isValidPhone(cForm.phone)) {
+      showMsg('رقم الموبايل يجب أن يكون 11 رقماً يبدأ بـ 07');
+      return;
+    }
+    if (createType === 'dept' && dForm.doctorPhone && !isValidPhone(dForm.doctorPhone)) {
+      showMsg('رقم موبايل الطبيب يجب أن يكون 11 رقماً يبدأ بـ 07');
+      return;
+    }
+
+    setLoading(true);
     const adminId = 'admin-' + Date.now();
     const trialDays = pricing && pricing.trial && pricing.trial.enabled ? (pricing.trial.trialDays || 10) : 0;
     const centerPrice = pricing && pricing.platform ? pricing.platform.centerMonthlyPrice : 50000;
@@ -43,26 +78,26 @@ export default function LandingPage() {
     const centerId = 'center-' + Date.now();
     const deptId = 'dept-' + Date.now();
 
-    // Save admin to localStorage
-    const existingAdmins = JSON.parse(localStorage.getItem('linex_admins') || '[]');
+    // Create admin object
     const admin: Admin = {
       id: adminId,
       fullName: adminForm.fullName || (createType === 'center' ? cForm.name : dForm.name),
       username: adminForm.username,
       password: adminForm.password,
       role: createType === 'center' ? 'center' : 'department',
-      phone: cForm.phone || '',
+      phone: cForm.phone || dForm.doctorPhone || '',
       email: cForm.email || dForm.doctorEmail || '',
       centerId: createType === 'center' ? centerId : (dForm.centerId || undefined),
       departmentId: createType === 'dept' ? deptId : undefined,
       isActive: true,
       createdAt: new Date().toISOString()
     };
-    existingAdmins.push(admin);
-    localStorage.setItem('linex_admins', JSON.stringify(existingAdmins));
+
+    // Save admin to Firestore + localStorage (dataStorage.ts)
+    await saveAdmin(admin);
 
     if (createType === 'center') {
-      if (!cForm.name || !cForm.phone) return;
+      if (!cForm.name || !cForm.phone) { setLoading(false); return; }
       const newCenter: Center = {
         id: centerId,
         name: cForm.name,
@@ -90,14 +125,12 @@ export default function LandingPage() {
         promoImages: [],
         promoText: ''
       };
-      const existingCenters = JSON.parse(localStorage.getItem('linex_centers') || '[]');
-      existingCenters.push(newCenter);
-      localStorage.setItem('linex_centers', JSON.stringify(existingCenters));
-      addCenter(newCenter);
+      // Save center to Firestore + localStorage
+      await saveCenter(newCenter);
       setShowCreateModal(false);
       showMsg(`تم إنشاء مركز "${cForm.name}" بنجاح! يمكنك تسجيل الدخول باسم المستخدم: ${adminForm.username}`);
     } else {
-      if (!dForm.name) return;
+      if (!dForm.name) { setLoading(false); return; }
       const newDept: Department = {
         id: deptId,
         name: dForm.name,
@@ -107,7 +140,6 @@ export default function LandingPage() {
         doctorEmail: dForm.doctorEmail,
         doctorPhone: dForm.doctorPhone,
         logo: '',
-        // ===== Department's OWN independent schedule =====
         workingDays: ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'],
         startTime: '09:00',
         endTime: '14:00',
@@ -115,7 +147,6 @@ export default function LandingPage() {
         daysOff: ['الجمعة'],
         vacationDays: [],
         bookingWindow: 7,
-        // Legacy fields
         workingHours: '09:00 - 14:00',
         fridayHours: '',
         centerId: dForm.centerId || null,
@@ -133,15 +164,70 @@ export default function LandingPage() {
         promoImages: [],
         promoText: ''
       };
-      const existingDepts = JSON.parse(localStorage.getItem('linex_departments') || '[]');
-      existingDepts.push(newDept);
-      localStorage.setItem('linex_departments', JSON.stringify(existingDepts));
-      addDepartment(newDept);
+      // Save department to Firestore + localStorage
+      await saveDepartment(newDept);
       setShowCreateModal(false);
       showMsg(`تم إنشاء عيادة "${dForm.name}" بنجاح! يمكنك تسجيل الدخول باسم المستخدم: ${adminForm.username}`);
     }
+    setLoading(false);
     resetForm();
   };
+
+  // Send OTP
+  const handleSendOTP = async () => {
+    if (!identifier) { showMsg('أدخل البريد أو رقم الموبايل'); return; }
+
+    if (identifierType === 'gmail') {
+      if (!identifier.toLowerCase().endsWith('@gmail.com')) { showMsg('يُسمح فقط بحسابات Gmail'); return; }
+    } else {
+      if (!isValidPhone(identifier)) { showMsg('صيغة الموبايل غير صحيحة. يجب أن يبدأ بـ 07 و11 رقماً'); return; }
+    }
+
+    setLoading(true);
+    const result = await sendOTP(identifier, identifierType);
+    setLoading(false);
+    if (result.success) {
+      setOtpStep('verify');
+      if (result.otpCode) setSimulatedOTP(result.otpCode);
+      setOtpCooldown(60);
+      showMsg('تم إرسال رمز التحقق!');
+    } else {
+      showMsg(result.error || 'فشل إرسال الرمز');
+    }
+  };
+
+  // Verify OTP
+  const handleVerifyOTP = async () => {
+    if (!otpCode || otpCode.length !== 6) { showMsg('أدخل الرمز المكون من 6 أرقام'); return; }
+    setLoading(true);
+    const result = await verifyOTP(identifier, otpCode, identifierType);
+    setLoading(false);
+    if (result.success) {
+      setOtpStep('identifier');
+      setSimulatedOTP('');
+      setOtpCode('');
+      setOtpCooldown(0);
+      showMsg('تم التحقق بنجاح!');
+      setStep(3); // Go to final step (center/dept details)
+    } else {
+      showMsg(result.error || 'الرمز غير صحيح');
+    }
+  };
+
+  // Resend OTP
+  const handleResendOTP = async () => {
+    if (otpCooldown > 0) return;
+    await handleSendOTP();
+  };
+
+  // OTP cooldown timer
+  useState(() => {
+    if (otpCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setOtpCooldown(p => Math.max(0, p - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  });
 
   const resetForm = () => { setCForm({ name: '', address: '', phone: '', email: '' }); setDForm({ name: '', description: '', doctorName: '', doctorEmail: '', doctorPhone: '', centerId: '' }); setAdminForm({ fullName: '', username: '', password: '' }); setStep(1); setActivationType('paid'); };
 
@@ -256,17 +342,121 @@ export default function LandingPage() {
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-gray-900">الاشتراك الشهري</span>
                     <span className="bg-amber-100 text-amber-700 text-lg px-3 py-1 rounded-full font-bold">
-                      {createType === 'center' 
-                        ? (pricing && pricing.platform ? pricing.platform.centerMonthlyPrice : 50000) 
+                      {createType === 'center'
+                        ? (pricing && pricing.platform ? pricing.platform.centerMonthlyPrice : 50000)
                         : (pricing && pricing.platform ? pricing.platform.deptMonthlyPrice : 25000)
                       } د.ع/شهر
                     </span>
                   </div>
                 </div>
 
+                {/* ===== OTP Verification ===== */}
+                {otpStep === 'identifier' ? (
+                  <>
+                    <h4 className="font-bold text-gray-900 flex items-center gap-2">
+                      <Shield className="w-5 h-5 text-teal-600" />
+                      التحقق من الحساب
+                    </h4>
+                    <p className="text-xs text-gray-500">اختر طريقة التحقق وأدخل بياناتك لاستلام رمز التحقق</p>
+
+                    {/* Method Selection */}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setIdentifierType('gmail')}
+                        className={`flex-1 p-3 rounded-lg border-2 text-center transition-all ${identifierType === 'gmail' ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                      >
+                        <Mail className={`w-5 h-5 mx-auto mb-1 ${identifierType === 'gmail' ? 'text-red-500' : 'text-gray-400'}`} />
+                        <p className="text-sm font-semibold">Gmail</p>
+                      </button>
+                      <button
+                        onClick={() => setIdentifierType('phone')}
+                        className={`flex-1 p-3 rounded-lg border-2 text-center transition-all ${identifierType === 'phone' ? 'border-teal-400 bg-teal-50' : 'border-gray-200'}`}
+                      >
+                        <Smartphone className={`w-5 h-5 mx-auto mb-1 ${identifierType === 'phone' ? 'text-teal-600' : 'text-gray-400'}`} />
+                        <p className="text-sm font-semibold">موبايل</p>
+                      </button>
+                    </div>
+
+                    {/* Identifier Input */}
+                    <div className="space-y-2">
+                      <Label>{identifierType === 'gmail' ? 'البريد الإلكتروني (Gmail فقط)' : 'رقم الموبايل'}</Label>
+                      <Input
+                        value={identifier}
+                        onChange={e => setIdentifier(identifierType === 'phone' ? e.target.value.replace(/\D/g, '').slice(0, 11) : e.target.value)}
+                        placeholder={identifierType === 'gmail' ? 'example@gmail.com' : '07xxxxxxxx'}
+                        dir="ltr"
+                      />
+                      <p className="text-xs text-gray-400">
+                        {identifierType === 'gmail' ? 'يُسمح فقط بحسابات Gmail' : 'أدخل رقم موبايل عراقي يبدأ بـ 07 (11 رقم)'}
+                      </p>
+                    </div>
+
+                    <Button
+                      onClick={handleSendOTP}
+                      disabled={loading || !identifier}
+                      className="w-full bg-teal-600 hover:bg-teal-700 gap-2"
+                    >
+                      {loading ? 'جاري...' : <><Shield className="w-4 h-4" /> إرسال رمز التحقق</>}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    {/* OTP Verification */}
+                    <h4 className="font-bold text-gray-900 flex items-center gap-2">
+                      <Shield className="w-5 h-5 text-teal-600" />
+                      أدخل رمز التحقق
+                    </h4>
+                    <p className="text-sm text-gray-500">
+                      تم إرسال رمز التحقق إلى <span dir="ltr">{identifier}</span>
+                    </p>
+
+                    {simulatedOTP && (
+                      <div className="bg-amber-50 p-3 rounded-lg border border-amber-200 text-center">
+                        <p className="text-xs text-amber-600">رمز التحقق (للتجربة)</p>
+                        <p className="text-2xl font-bold text-amber-700 tracking-[0.3em]" dir="ltr">{simulatedOTP}</p>
+                      </div>
+                    )}
+
+                    <Input
+                      value={otpCode}
+                      onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="000000"
+                      dir="ltr"
+                      className="text-center text-2xl tracking-[0.5em] font-bold"
+                      maxLength={6}
+                    />
+
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        className="flex-1"
+                        onClick={() => { setOtpStep('identifier'); setSimulatedOTP(''); setOtpCode(''); }}
+                      >
+                        تغيير {identifierType === 'gmail' ? 'البريد' : 'الرقم'}
+                      </Button>
+                      <Button
+                        onClick={handleVerifyOTP}
+                        disabled={loading || otpCode.length !== 6}
+                        className="flex-1 bg-teal-600 hover:bg-teal-700 gap-2"
+                      >
+                        {loading ? 'جاري...' : <><CheckCircle2 className="w-4 h-4" /> تحقق</>}
+                      </Button>
+                    </div>
+
+                    <div className="text-center">
+                      <button
+                        onClick={handleResendOTP}
+                        disabled={otpCooldown > 0 || loading}
+                        className="text-sm text-teal-600 hover:text-teal-700 disabled:text-gray-400"
+                      >
+                        {otpCooldown > 0 ? `إعادة الإرسال بعد ${otpCooldown} ثانية` : 'إعادة إرسال الرمز'}
+                      </button>
+                    </div>
+                  </>
+                )}
+
                 <div className="flex gap-2">
                   <Button variant="outline" className="flex-1" onClick={() => setStep(1)}>رجوع</Button>
-                  <Button className="flex-1 hover:opacity-90" style={{ backgroundColor: '#5C7A6B' }} onClick={() => setStep(3)}>التالي</Button>
                 </div>
               </div>
             )}
@@ -276,7 +466,7 @@ export default function LandingPage() {
                   <>
                     <div className="space-y-2"><Label>اسم المركز الطبي <span className="text-red-500">*</span></Label><Input value={cForm.name} onChange={e => setCForm({ ...cForm, name: e.target.value })} placeholder="مثال: مركز الشفاء الطبي" /></div>
                     <div className="space-y-2"><Label>العنوان</Label><Input value={cForm.address} onChange={e => setCForm({ ...cForm, address: e.target.value })} placeholder="بغداد - الكرادة" /></div>
-                    <div className="space-y-2"><Label>رقم الموبايل <span className="text-red-500">*</span></Label><Input value={cForm.phone} onChange={e => setCForm({ ...cForm, phone: e.target.value })} placeholder="07701234567" dir="ltr" /></div>
+                    <div className="space-y-2"><Label>رقم الموبايل <span className="text-red-500">*</span></Label><Input value={cForm.phone} onChange={e => setCForm({ ...cForm, phone: e.target.value.replace(/\D/g, '').slice(0, 11) })} placeholder="07xxxxxxxx (11 رقم)" dir="ltr" /><p className="text-xs text-gray-400">يجب أن يبدأ بـ 07 ويتكون من 11 رقماً</p></div>
                     <div className="space-y-2"><Label>البريد الإلكتروني</Label><Input value={cForm.email} onChange={e => setCForm({ ...cForm, email: e.target.value })} placeholder="email@example.com" dir="ltr" /></div>
                   </>
                 ) : (
@@ -304,8 +494,8 @@ export default function LandingPage() {
                 </div>
                 <div className="flex justify-end gap-2 mt-4">
                   <Button variant="outline" onClick={() => { setShowCreateModal(false); setStep(1); }}>إلغاء</Button>
-                  <Button onClick={handleCreate} className="hover:opacity-90" style={{ backgroundColor: '#5C7A6B' }}>
-                    إنشاء {createType === 'center' ? 'المركز' : 'العيادة'}
+                  <Button onClick={handleCreate} disabled={loading} className="hover:opacity-90" style={{ backgroundColor: '#5C7A6B' }}>
+                    {loading ? 'جاري الإنشاء...' : `إنشاء ${createType === 'center' ? 'المركز' : 'العيادة'}`}
                   </Button>
                 </div>
               </div>
