@@ -240,11 +240,11 @@ export default function LandingPage() {
             {step === 2 && (
               <div className="space-y-4">
                 {/* Trial Period Notice */}
-                {pricing.trial?.enabled && (
+                {pricing?.trial?.enabled && (
                   <div className="bg-teal-50 p-4 rounded-xl border border-teal-200">
                     <p className="text-sm text-teal-700 flex items-center gap-2">
                       <CheckCircle2 className="w-5 h-5 shrink-0" />
-                      <span>سجل الآن واحصل على <strong>{pricing.trial?.trialDays || 10} أيام</strong> مجاناً كفترة تجريبية</span>
+                      <span>سجل الآن واحصل على <strong>{pricing?.trial?.trialDays || 10} أيام</strong> مجاناً كفترة تجريبية</span>
                     </p>
                   </div>
                 )}
@@ -253,7 +253,12 @@ export default function LandingPage() {
                 <div className="bg-amber-50 p-4 rounded-xl border border-amber-200">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-gray-900">الاشتراك الشهري</span>
-                    <Badge className="bg-amber-100 text-amber-700 text-lg">{createType === 'center' ? pricing.platform.centerMonthlyPrice : pricing.platform.deptMonthlyPrice} د.ع/شهر</Badge>
+                    <Badge className="bg-amber-100 text-amber-700 text-lg">
+                      {createType === 'center' 
+                        ? (pricing?.platform?.centerMonthlyPrice ?? 50000) 
+                        : (pricing?.platform?.deptMonthlyPrice ?? 25000)
+                      } د.ع/شهر
+                    </Badge>
                   </div>
                 </div>
 
