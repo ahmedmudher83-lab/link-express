@@ -18,7 +18,7 @@ export default function LandingPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createType, setCreateType] = useState<'center' | 'dept'>('center');
   const [step, setStep] = useState(1);
-  const [activationType, setActivationType] = useState<ActivationType>('free');
+  const [activationType, setActivationType] = useState<ActivationType>('paid');
   const [msg, setMsg] = useState('');
 
   const [cForm, setCForm] = useState({ name: '', address: '', phone: '', email: '' });
@@ -30,19 +30,14 @@ export default function LandingPage() {
 
   const visibleCenters = activeCenters.filter(c => {
     if (c.appearanceType === 'hidden') return false;
-    if (c.appearanceType === 'free_trial') return new Date(c.appearanceExpiry) > new Date();
     return c.appearanceType === 'paid';
   });
 
   const handleCreate = () => {
     if (!adminForm.username || !adminForm.password) { showMsg('يرجى إدخال اسم المستخدم وكلمة المرور'); return; }
 
-    if (activationType === 'paid') {
-      navigate('/payment', { state: { name: createType === 'center' ? cForm.name : dForm.name, type: createType, activationType, price: createType === 'center' ? pricing.platform.centerMonthlyPrice : pricing.platform.deptMonthlyPrice, months: 1, formData: createType === 'center' ? { ...cForm, adminForm } : { ...dForm, adminForm } } });
-      return;
-    }
-
     const adminId = 'admin-' + Date.now();
+    const trialDays = pricing.trial?.enabled ? (pricing.trial?.trialDays || 10) : 0;
     const centerId = 'center-' + Date.now();
     const deptId = 'dept-' + Date.now();
 
@@ -80,16 +75,16 @@ export default function LandingPage() {
         consultationDuration: 15,
         doctors: [],
         adminId,
-        activationType: 'free',
-        subscriptionPrice: 0,
-        freeTrialDays: 7,
+        activationType: 'paid',
+        subscriptionPrice: pricing.platform.centerMonthlyPrice,
+        freeTrialDays: trialDays,
         createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(),
+        expiresAt: new Date(Date.now() + trialDays * 86400000).toISOString(),
         isPaid: false,
         isActive: true,
         status: 'trial' as Center['status'],
-        appearanceType: 'free_trial',
-        appearanceExpiry: new Date(Date.now() + 3 * 86400000).toISOString(),
+        appearanceType: 'hidden',
+        appearanceExpiry: '',
         promoImages: [],
         promoText: ''
       };
@@ -123,16 +118,16 @@ export default function LandingPage() {
         fridayHours: '',
         centerId: dForm.centerId || null,
         adminId,
-        activationType: 'free',
-        subscriptionPrice: 0,
-        freeTrialDays: 7,
+        activationType: 'paid',
+        subscriptionPrice: pricing.platform.deptMonthlyPrice,
+        freeTrialDays: trialDays,
         createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(),
+        expiresAt: new Date(Date.now() + trialDays * 86400000).toISOString(),
         isPaid: false,
         isActive: true,
         status: 'trial' as Department['status'],
-        appearanceType: 'free_trial',
-        appearanceExpiry: new Date(Date.now() + 3 * 86400000).toISOString(),
+        appearanceType: 'hidden',
+        appearanceExpiry: '',
         promoImages: [],
         promoText: ''
       };
@@ -146,7 +141,7 @@ export default function LandingPage() {
     resetForm();
   };
 
-  const resetForm = () => { setCForm({ name: '', address: '', phone: '', email: '' }); setDForm({ name: '', description: '', doctorName: '', doctorEmail: '', doctorPhone: '', centerId: '' }); setAdminForm({ fullName: '', username: '', password: '' }); setStep(1); setActivationType('free'); };
+  const resetForm = () => { setCForm({ name: '', address: '', phone: '', email: '' }); setDForm({ name: '', description: '', doctorName: '', doctorEmail: '', doctorPhone: '', centerId: '' }); setAdminForm({ fullName: '', username: '', password: '' }); setStep(1); setActivationType('paid'); };
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#5aa9c2' }}>
@@ -244,15 +239,24 @@ export default function LandingPage() {
             )}
             {step === 2 && (
               <div className="space-y-4">
-                <p className="text-sm text-gray-500 mb-4">اختر نوع الاشتراك</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <button onClick={() => setActivationType('free')} className={`p-4 rounded-xl border-2 text-center transition-all ${activationType === 'free' ? 'border-purple-500 bg-purple-50' : 'border-gray-200'}`}>
-                    <p className="font-bold">مجاني</p><p className="text-xs text-gray-500">7 أيام</p>
-                  </button>
-                  <button onClick={() => setActivationType('paid')} className={`p-4 rounded-xl border-2 text-center transition-all ${activationType === 'paid' ? 'border-amber-500 bg-amber-50' : 'border-gray-200'}`}>
-                    <p className="font-bold">مدفوع</p><p className="text-xs text-gray-500">{createType === 'center' ? pricing.platform.centerMonthlyPrice : pricing.platform.deptMonthlyPrice} د.ع/شهر</p>
-                  </button>
+                {/* Trial Period Notice */}
+                {pricing.trial?.enabled && (
+                  <div className="bg-teal-50 p-4 rounded-xl border border-teal-200">
+                    <p className="text-sm text-teal-700 flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5 shrink-0" />
+                      <span>سجل الآن واحصل على <strong>{pricing.trial?.trialDays || 10} أيام</strong> مجاناً كفترة تجريبية</span>
+                    </p>
+                  </div>
+                )}
+
+                {/* Subscription Price - Always Paid */}
+                <div className="bg-amber-50 p-4 rounded-xl border border-amber-200">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-gray-900">الاشتراك الشهري</span>
+                    <Badge className="bg-amber-100 text-amber-700 text-lg">{createType === 'center' ? pricing.platform.centerMonthlyPrice : pricing.platform.deptMonthlyPrice} د.ع/شهر</Badge>
+                  </div>
                 </div>
+
                 <div className="flex gap-2">
                   <Button variant="outline" className="flex-1" onClick={() => setStep(1)}>رجوع</Button>
                   <Button className="flex-1 hover:opacity-90" style={{ backgroundColor: '#5C7A6B' }} onClick={() => setStep(3)}>التالي</Button>
