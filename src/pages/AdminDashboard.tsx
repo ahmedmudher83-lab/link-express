@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '@/hooks/useAuth';
 import { useLinexData } from '@/hooks/useLinexData';
-import { saveCenter, saveDepartment } from '@/services/firebaseService';
+import { saveCenter, saveDepartment } from '@/services/dataStorage';
 import type { ActivationType, Center, Department } from '@/types/linex';
 import { getStatusLabel, getStatusColor, getRemainingDays, getActivationLabel, getActivationBadge } from '@/types/linex';
 import { Button } from '@/components/ui/button';
