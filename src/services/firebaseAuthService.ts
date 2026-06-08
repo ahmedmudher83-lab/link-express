@@ -70,30 +70,37 @@ export async function sendOTP(identifier: string, method: 'gmail' | 'phone'): Pr
   const cooldowns = lsGet<Record<string, number>>(OTP_COOLDOWN_KEY, {});
   const now = Date.now();
   const lastSent = cooldowns[identifier] || 0;
-  const cooldownRemaining = Math.ceil((lastSent + 60000 - now) / 1000); // 60 second cooldown
+  const cooldownRemaining = Math.ceil((lastSent + 60000 - now) / 1000);
 
   if (now < lastSent + 60000) {
-    return { success: false, error: `يرجى الانتظار ${cooldownRemaining} ثانية قبل إعادة الإرسال`, cooldown: cooldownRemaining };
+    return { success: false, error: `يرجى الانتظار ${cooldownRemaining} ثانية`, cooldown: cooldownRemaining };
   }
 
-  // Check for duplicate email/phone in existing admins
-  const admins = await getAllAdmins();
+  // Clean identifier for phone
+  const clean = method === 'phone' ? cleanPhone(identifier) : identifier;
+
+  // Check for duplicate email/phone in existing admins (localStorage only - reliable)
+  const admins = lsGet<Admin[]>('linex_admins', []);
   if (method === 'gmail') {
-    const existing = admins.find(a => a.email.toLowerCase() === identifier.toLowerCase());
-    if (existing) return { success: false, error: 'هذا البريد الإلكتروني مسجل مسبقاً' };
+    const existing = admins.find(a => a.email && a.email.toLowerCase() === identifier.toLowerCase());
+    if (existing) return { success: false, error: 'هذا البريد مسجل مسبقاً' };
   } else {
-    const clean = cleanPhone(identifier);
-    const existing = admins.find(a => cleanPhone(a.phone) === clean);
+    const existing = admins.find(a => a.phone && cleanPhone(a.phone) === clean);
     if (existing) return { success: false, error: 'هذا الرقم مسجل مسبقاً' };
   }
 
   // Generate OTP
   const otpCode = generateOTP();
-  const expiresAt = new Date(now + 10 * 60 * 1000).toISOString(); // 10 minutes expiry
+  const expiresAt = new Date(now + 10 * 60 * 1000).toISOString();
 
   // Store OTP record
   const records = lsGet<OTPRecord[]>(OTP_STORAGE_KEY, []);
-  const newRecord: OTPRecord = {
+  // Remove old records for same identifier
+  const filtered = records.filter(r => {
+    if (method === 'gmail') return r.email !== identifier;
+    return r.phone !== clean;
+  });
+  filtered.push({
     id: 'otp-' + Date.now(),
     email: method === 'gmail' ? identifier : undefined,
     phone: method === 'phone' ? cleanPhone(identifier) : undefined,
@@ -102,18 +109,15 @@ export async function sendOTP(identifier: string, method: 'gmail' | 'phone'): Pr
     verified: false,
     attempts: 0,
     createdAt: new Date().toISOString(),
-  };
-  records.push(newRecord);
-  lsSet(OTP_STORAGE_KEY, records);
+  });
+  lsSet(OTP_STORAGE_KEY, filtered);
 
   // Set cooldown
   cooldowns[identifier] = now;
   lsSet(OTP_COOLDOWN_KEY, cooldowns);
 
-  // In production: Send actual email/SMS here
-  console.log(`📧 OTP for ${identifier}: ${otpCode}`);
-
-  return { success: true, otpCode }; // otpCode returned for demo/testing purposes
+  console.log(`OTP for ${identifier}: ${otpCode}`);
+  return { success: true, otpCode };
 }
 
 /**
