@@ -1,588 +1,275 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router';
+import { useAuth } from '@/hooks/useAuth';
 import { useLinexData } from '@/hooks/useLinexData';
-import { saveAdmin, saveCenter, saveDepartment } from '@/services/dataStorage';
-import { sendOTP, verifyOTP, createAccountWithOTP } from '@/services/firebaseAuthService';
-import type { Center, Department, Admin } from '@/types/linex';
+import type { ActivationType, Admin } from '@/types/linex';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Lock, Plus, Phone, Mail, Shield, CheckCircle2,
-  Stethoscope, Building2, X, User, Smartphone,
-  Loader2, ArrowLeft, ArrowRight
+  Lock, Plus, Phone, Mail, ExternalLink, CalendarDays,
+  X, Save, CheckCircle2, Stethoscope, Building2, Clock, MapPin
 } from 'lucide-react';
-
-type RegMethod = 'gmail' | 'phone';
 
 export default function LandingPage() {
   const navigate = useNavigate();
-  const { pricing, getActiveCenters, getIndependentDepartments } = useLinexData();
+  const { addAdmin } = useAuth();
+  const { pricing, getDepartmentsByCenter, getActiveCenters } = useLinexData();
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createType, setCreateType] = useState<'center' | 'dept'>('center');
   const [step, setStep] = useState(1);
+  const [activationType, setActivationType] = useState<ActivationType>('free');
   const [msg, setMsg] = useState('');
-  const [loading, setLoading] = useState(false);
 
-  // Registration method
-  const [regMethod, setRegMethod] = useState<RegMethod>('gmail');
+  const [cForm, setCForm] = useState({ name: '', address: '', phone: '', email: '' });
+  const [dForm, setDForm] = useState({ name: '', description: '', doctorEmail: '', centerId: '' });
+  const [adminForm, setAdminForm] = useState({ fullName: '', username: '', password: '' });
 
-  // Step 1: Account info + OTP
-  const [identifier, setIdentifier] = useState(''); // email or phone
-  const [fullName, setFullName] = useState('');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-
-  // OTP
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpCode, setOtpCode] = useState('');
-  const [verified, setVerified] = useState(false);
-  const [otpCooldown, setOtpCooldown] = useState(0);
-  const [simulatedOTP, setSimulatedOTP] = useState('');
-
-  // Step 2: Center/Dept details
-  const [cName, setCName] = useState('');
-  const [cAddress, setCAddress] = useState('');
-  const [cPhone, setCPhone] = useState('');
-  const [dName, setDName] = useState('');
-  const [dDesc, setDDesc] = useState('');
-  const [dDoctor, setDDoctor] = useState('');
-
+  const showMsg = (t: string) => { setMsg(t); setTimeout(() => setMsg(''), 3000); };
   const activeCenters = getActiveCenters();
-  const activeDepts = getIndependentDepartments();
 
-  const showMsg = (text: string) => { setMsg(text); setTimeout(() => setMsg(''), 6000); };
-  const isValidGmail = (email: string) => email.toLowerCase().endsWith('@gmail.com');
-  const isValidPhone = (phone: string) => /^07\d{9}$/.test(phone.replace(/\s/g, ''));
+  const visibleCenters = activeCenters.filter(c => {
+    if (c.appearanceType === 'hidden') return false;
+    if (c.appearanceType === 'free_trial') return new Date(c.appearanceExpiry) > new Date();
+    return c.appearanceType === 'paid';
+  });
 
-  // OTP cooldown timer
-  useEffect(() => {
-    if (otpCooldown <= 0) return;
-    const timer = setInterval(() => setOtpCooldown(p => Math.max(0, p - 1)), 1000);
-    return () => clearInterval(timer);
-  }, [otpCooldown]);
+  const handleCreate = () => {
+    if (!adminForm.username || !adminForm.password) { showMsg('يرجى إدخال اسم المستخدم وكلمة المرور'); return; }
 
-  const resetForm = () => {
-    setIdentifier(''); setFullName(''); setUsername(''); setPassword(''); setConfirmPassword('');
-    setOtpSent(false); setOtpCode(''); setVerified(false); setOtpCooldown(0); setSimulatedOTP('');
-    setRegMethod('gmail');
-    setCName(''); setCAddress(''); setCPhone('');
-    setDName(''); setDDesc(''); setDDoctor('');
-    setStep(1); setMsg(''); setLoading(false);
-  };
-
-  // ======== STEP 1: Send OTP ========
-  const handleSendOTP = async () => {
-    setError('');
-    // Validate fields
-    if (!fullName || !identifier) { showMsg('أدخل الاسم والبريد/الموبايل'); return; }
-
-    if (regMethod === 'gmail') {
-      if (!isValidGmail(identifier)) { showMsg('يُسمح فقط بحسابات Gmail (@gmail.com)'); return; }
-    } else {
-      if (!isValidPhone(identifier)) { showMsg('رقم الموبايل يجب أن يكون 11 رقماً يبدأ بـ 07'); return; }
-    }
-
-    setLoading(true);
-    const result = await sendOTP(identifier, regMethod);
-    setLoading(false);
-
-    if (result.success) {
-      setOtpSent(true);
-      setOtpCooldown(60);
-      if (result.otpCode) setSimulatedOTP(result.otpCode);
-      showMsg('تم إرسال رمز التحقق!');
-    } else {
-      showMsg(result.error || 'فشل إرسال الرمز');
-    }
-  };
-
-  // ======== Verify OTP ========
-  const handleVerifyOTP = async () => {
-    if (!otpCode || otpCode.length !== 6) { showMsg('أدخل الرمز المكون من 6 أرقام'); return; }
-    setLoading(true);
-    const result = await verifyOTP(identifier, otpCode, regMethod);
-    setLoading(false);
-    if (result.success) {
-      setVerified(true);
-      showMsg('تم التحقق بنجاح!');
-    } else {
-      showMsg(result.error || 'الرمز غير صحيح');
-    }
-  };
-
-  // ======== Resend OTP ========
-  const handleResendOTP = async () => {
-    if (otpCooldown > 0) return;
-    setSimulatedOTP('');
-    setLoading(true);
-    const result = await sendOTP(identifier, regMethod);
-    setLoading(false);
-    if (result.success) {
-      setOtpCooldown(60);
-      if (result.otpCode) setSimulatedOTP(result.otpCode);
-      showMsg('تم إعادة إرسال الرمز!');
-    } else {
-      showMsg(result.error || 'فشل إعادة الإرسال');
-    }
-  };
-
-  // ======== STEP 2: Validate account info ========
-  const handleStep2Next = () => {
-    if (!username) { showMsg('أدخل اسم المستخدم'); return; }
-    if (username.includes(' ')) { showMsg('اسم المستخدم لا يجب أن يحتوي على مسافات'); return; }
-    if (!password || password.length < 6) { showMsg('كلمة المرور يجب أن تكون 6 أحرف على الأقل'); return; }
-    if (password !== confirmPassword) { showMsg('كلمتا المرور غير متطابقتين'); return; }
-    setStep(3);
-  };
-
-  // ======== STEP 3: Create account ========
-  const handleCreate = async () => {
-    if (!verified) { showMsg('يرجى التحقق من الرمز أولاً'); return; }
-    if (createType === 'center' && (!cName || !cPhone)) { showMsg('أدخل اسم المركز ورقم الموبايل'); return; }
-    if (createType === 'center' && !isValidPhone(cPhone)) { showMsg('رقم الموبايل يجب أن يكون 11 رقماً يبدأ بـ 07'); return; }
-    if (createType === 'dept' && (!dName || !dDoctor)) { showMsg('أدخل اسم العيادة واسم الطبيب'); return; }
-
-    setLoading(true);
-    const trialDays = pricing?.trial?.enabled ? (pricing?.trial?.trialDays || 10) : 0;
-    const subPrice = pricing?.platform
-      ? (createType === 'center' ? pricing.platform.centerMonthlyPrice : pricing.platform.deptMonthlyPrice)
-      : (createType === 'center' ? 50000 : 25000);
-
-    // Create account via OTP service
-    const role = createType === 'center' ? 'center' as const : 'department' as const;
-    const result = await createAccountWithOTP(fullName, identifier, regMethod, username, password, role);
-
-    if (!result.success) {
-      setLoading(false);
-      showMsg(result.error || 'فشل إنشاء الحساب');
+    if (activationType === 'paid') {
+      navigate('/payment', { state: { name: createType === 'center' ? cForm.name : dForm.name, type: createType, activationType, price: createType === 'center' ? pricing.platform.centerMonthlyPrice : pricing.platform.deptMonthlyPrice, months: 1, formData: createType === 'center' ? { ...cForm, adminForm } : { ...dForm, adminForm } } });
       return;
     }
 
-    const admin = result.admin;
-    if (!admin) {
-      setLoading(false);
-      showMsg('فشل إنشاء الحساب');
-      return;
-    }
+    const adminId = 'admin-' + Date.now();
+    const appearanceExpiry = new Date(Date.now() + 3 * 86400000).toISOString();
 
-    // Update admin with center/dept info
-    const updatedAdmin: Admin = {
-      ...admin,
-      fullName: createType === 'center' ? cName : dName,
-      phone: cPhone || admin.phone || '',
-      email: regMethod === 'gmail' ? identifier : (admin.email || ''),
-    };
-    await saveAdmin(updatedAdmin);
+    const admin: Admin = { id: adminId, fullName: adminForm.fullName || (createType === 'center' ? cForm.name : dForm.name), username: adminForm.username, password: adminForm.password, role: createType === 'center' ? 'center' : 'department', phone: cForm.phone || '', email: cForm.email || dForm.doctorEmail || '', centerId: createType === 'center' ? 'center-' + Date.now() : undefined, departmentId: createType === 'dept' ? 'dept-' + Date.now() : undefined, isActive: true, createdAt: new Date().toISOString() };
+    addAdmin(admin);
 
     if (createType === 'center') {
-      const centerId = 'center-' + Date.now();
-      const center: Center = {
-        id: centerId, name: cName, address: cAddress, phone: cPhone, email: admin.email || '',
-        logo: '', workingDays: ['السبت','الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس'],
-        workingHours: '08:00 - 22:00', fridayHours: '16:00 - 21:00', emergencyHours: '24 ساعة',
-        consultationDuration: 15, doctors: [], adminId: admin.id,
-        activationType: 'paid', subscriptionPrice: subPrice, freeTrialDays: trialDays,
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + trialDays * 86400000).toISOString(),
-        isPaid: false, isActive: true, status: 'trial' as Center['status'],
-        appearanceType: 'hidden', appearanceExpiry: '', promoImages: [], promoText: ''
-      };
-      await saveCenter(center);
-      showMsg(`تم إنشاء مركز "${cName}" بنجاح! تسجيل الدخول بـ: ${username}`);
+      if (!cForm.name || !cForm.phone) return;
+      import('@/services/dataStorage').then(({ saveCenter }) => {
+        saveCenter({ id: admin.centerId!, name: cForm.name, address: cForm.address, phone: cForm.phone, email: cForm.email, logo: '', workingDays: ['السبت','الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس'], workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', emergencyHours: '24 ساعة', consultationDuration: 15, doctors: [], adminId, activationType: 'free', subscriptionPrice: 0, freeTrialDays: 7, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(), isPaid: false, isActive: true, status: 'trial' as const, appearanceType: 'free_trial', appearanceExpiry, promoImages: [], promoText: '' });
+      });
+      setShowCreateModal(false); showMsg(`تم إنشاء مركز "${cForm.name}" وبيانات المدير!`);
     } else {
-      const deptId = 'dept-' + Date.now();
-      const dept: Department = {
-        id: deptId, name: dName, description: dDesc, icon: 'Stethoscope',
-        doctorName: dDoctor, doctorEmail: admin.email || '', doctorPhone: '', logo: '',
-        workingDays: ['السبت','الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس'],
-        startTime: '09:00', endTime: '14:00', consultationDuration: 15,
-        daysOff: ['الجمعة'], vacationDays: [], bookingWindow: 7,
-        workingHours: '09:00 - 14:00', fridayHours: '', centerId: null, adminId: admin.id,
-        activationType: 'paid', subscriptionPrice: subPrice, freeTrialDays: trialDays,
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + trialDays * 86400000).toISOString(),
-        isPaid: false, isActive: true, status: 'trial' as Department['status'],
-        appearanceType: 'hidden', appearanceExpiry: '', promoImages: [], promoText: ''
-      };
-      await saveDepartment(dept);
-      showMsg(`تم إنشاء عيادة "${dName}" بنجاح! تسجيل الدخول بـ: ${username}`);
+      if (!dForm.name) return;
+      import('@/services/dataStorage').then(({ saveDepartment }) => {
+        saveDepartment({ id: admin.departmentId!, name: dForm.name, description: dForm.description, icon: 'Stethoscope', doctorName: '', doctorEmail: dForm.doctorEmail, doctorPhone: '', logo: '', workingDays: ['السبت','الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس'], workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', consultationDuration: 15, centerId: dForm.centerId || null, adminId, activationType: 'free', subscriptionPrice: 0, freeTrialDays: 7, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(), isPaid: false, isActive: true, status: 'trial' as const, appearanceType: 'free_trial', appearanceExpiry, promoImages: [], promoText: '' });
+      });
+      setShowCreateModal(false); showMsg(`تم إنشاء عيادة "${dForm.name}" وبيانات المدير!`);
     }
-
-    setLoading(false);
-    setShowCreateModal(false);
     resetForm();
   };
 
-  const [error, setError] = useState('');
-  const showError = (text: string) => { setError(text); setTimeout(() => setError(''), 5000); };
+  const resetForm = () => { setCForm({ name: '', address: '', phone: '', email: '' }); setDForm({ name: '', description: '', doctorEmail: '', centerId: '' }); setAdminForm({ fullName: '', username: '', password: '' }); setStep(1); setActivationType('free'); };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      {/* Navbar */}
-      <nav className="bg-white/80 backdrop-blur border-b sticky top-0 z-50">
+    <div className="min-h-screen bg-white">
+      {/* ===== HEADER ===== */}
+      <header className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img src="/assets/linex-logo-transparent.png" alt="LinkEX" className="h-9 w-auto" />
+            <span className="font-bold text-lg hidden sm:inline">Link Express</span>
+          </div>
+          <div className="flex items-center gap-3">
+            {msg && <span className="hidden md:flex text-sm text-green-400 bg-green-400/10 px-3 py-1 rounded-full"><CheckCircle2 className="w-4 h-4 ml-1" />{msg}</span>}
+            <Button variant="outline" size="sm" className="text-white border-white/30 hover:bg-white/10" onClick={() => navigate('/login')}>
+              <span className="ml-1">تسجيل الدخول</span>
+              <Lock className="w-4 h-4" />
+            </Button>
+            <Button size="sm" className="bg-teal-600 hover:bg-teal-700" onClick={() => { setCreateType('center'); setShowCreateModal(true); }}>
+              <span className="ml-1">لأول مرة</span>
+              <Plus className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      {/* ===== HERO SECTION ===== */}
+      <section className="bg-gradient-to-br from-slate-900 via-slate-800 to-teal-900 text-white py-16 md:py-24">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <img src="/assets/linex-logo-transparent.png" alt="Link Express" className="h-36 md:h-48 w-auto mx-auto mb-6 drop-shadow-2xl" />
+          <h1 className="text-4xl md:text-6xl font-bold mb-4">Link Express</h1>
+          <p className="text-2xl md:text-3xl font-light text-teal-300 mb-2">خيارك الأفضل</p>
+          <p className="text-xl text-slate-300 mb-8">للحلول الذكية</p>
+        </div>
+      </section>
+
+      {/* ===== ADVERTISING CENTERS ===== */}
+      <section className="py-12 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-2">
-              <img src="/assets/linex-logo-transparent.png" alt="LinkEX" className="h-10 w-auto object-contain" />
-              <h1 className="text-2xl font-bold">
-                <span style={{ color: '#2c3e50' }}>Link</span>
-                <span style={{ color: '#FF5722' }}>EX</span>
-              </h1>
-            </div>
-            <div className="flex items-center gap-3">
-              <Button variant="outline" size="sm" onClick={() => navigate('/login')} className="gap-1">
-                <Lock className="w-4 h-4" />تسجيل الدخول
-              </Button>
-              <Button size="sm" className="gap-1" style={{ backgroundColor: '#5C7A6B' }} onClick={() => { resetForm(); setShowCreateModal(true); }}>
-                <Plus className="w-4 h-4" />لأول مرة
-              </Button>
-            </div>
-          </div>
-        </div>
-      </nav>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2 text-center">المراكز والعيادات</h2>
+          <p className="text-gray-500 mb-8 text-center">اكتشف أفضل المراكز الطبية واحجز موعدك</p>
 
-      {/* Hero */}
-      <section className="py-16 px-4">
-        <div className="max-w-4xl mx-auto text-center">
-          <img src="/assets/linex-logo-transparent.png" alt="LinkEX" className="h-32 w-auto mx-auto mb-6 object-contain" />
-          <h2 className="text-4xl font-bold mb-4">
-            <span style={{ color: '#2c3e50' }}>Link</span>
-            <span style={{ color: '#FF5722' }}>EX</span>
-          </h2>
-          <p className="text-lg text-gray-600 mb-8">نظام إدارة المراكز الطبية الذكي</p>
-          <div className="flex gap-4 justify-center">
-            <Button size="lg" style={{ backgroundColor: '#5C7A6B' }} className="gap-2" onClick={() => navigate('/login')}>
-              <Lock className="w-5 h-5" />تسجيل دخول المدير
-            </Button>
-            <Button size="lg" variant="outline" className="gap-2" onClick={() => { resetForm(); setShowCreateModal(true); }}>
-              <Plus className="w-5 h-5" />اشترك الآن
-            </Button>
-          </div>
-          {pricing?.trial?.enabled && (
-            <p className="mt-4 text-sm text-teal-600 font-medium">
-              <CheckCircle2 className="w-4 h-4 inline ml-1" />
-              سجل الآن واحصل على {pricing.trial.trialDays || 10} أيام مجاناً كفترة تجريبية
-            </p>
-          )}
-        </div>
-      </section>
-
-      {/* Centers */}
-      <section className="py-12 px-4 bg-white">
-        <div className="max-w-6xl mx-auto">
-          <h3 className="text-2xl font-bold mb-6 text-center">المراكز الطبية</h3>
-          {activeCenters.length === 0 ? (
-            <p className="text-center text-gray-400">لا توجد مراكز مسجلة حالياً</p>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {activeCenters.map(c => (
-                <Card key={c.id} className="p-4 hover:shadow-lg transition-shadow cursor-pointer" onClick={() => navigate(`/center/${c.id}`)}>
-                  <div className="flex items-center gap-3">
-                    <Building2 className="w-10 h-10 text-teal-600" />
-                    <div>
-                      <p className="font-bold">{c.name}</p>
-                      <p className="text-sm text-gray-500">{c.address}</p>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Create Account Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <Card className="w-full max-w-md p-6 relative max-h-[90vh] overflow-y-auto">
-            <button onClick={() => { setShowCreateModal(false); resetForm(); }} className="absolute top-4 left-4 text-gray-400 hover:text-gray-600">
-              <X className="w-5 h-5" />
-            </button>
-
-            <h3 className="text-xl font-bold text-center mb-4">
-              {step === 1 && 'اختر نوع الاشتراك'}
-              {step === 2 && 'التحقق من الحساب'}
-              {step === 3 && `بيانات ${createType === 'center' ? 'المركز' : 'العيادة'}`}
-            </h3>
-
-            {/* Step indicator */}
-            <div className="flex items-center justify-center gap-2 mb-4">
-              <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${step >= 1 ? 'bg-teal-600 text-white' : 'bg-gray-200'}`}>1</span>
-              <span className="w-8 h-0.5 bg-gray-200"><span className={`block h-full bg-teal-600 transition-all ${step >= 2 ? 'w-full' : 'w-0'}`} /></span>
-              <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${step >= 2 ? 'bg-teal-600 text-white' : 'bg-gray-200'}`}>2</span>
-              <span className="w-8 h-0.5 bg-gray-200"><span className={`block h-full bg-teal-600 transition-all ${step >= 3 ? 'w-full' : 'w-0'}`} /></span>
-              <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${step >= 3 ? 'bg-teal-600 text-white' : 'bg-gray-200'}`}>3</span>
-            </div>
-
-            {msg && (
-              <div className={`mb-4 p-3 rounded-lg text-sm text-center ${msg.includes('فشل') || msg.includes('خطأ') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
-                {msg}
-              </div>
-            )}
-            {error && (
-              <div className="mb-4 p-3 rounded-lg text-sm text-center bg-red-50 text-red-700">
-                {error}
-              </div>
-            )}
-
-            {/* ===== STEP 1: Select Type ===== */}
-            {step === 1 && (
-              <div className="space-y-4">
-                {pricing?.trial?.enabled && (
-                  <div className="bg-teal-50 p-3 rounded-lg border border-teal-200 text-center">
-                    <p className="text-sm text-teal-700">
-                      <CheckCircle2 className="w-4 h-4 inline ml-1" />
-                      سجل الآن واحصل على <strong>{pricing.trial.trialDays || 10} أيام</strong> مجاناً
-                    </p>
-                  </div>
-                )}
-
-                <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-gray-900">الاشتراك الشهري</span>
-                    <span className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full font-bold">
-                      {(createType === 'center'
-                        ? (pricing?.platform?.centerMonthlyPrice ?? 50000)
-                        : (pricing?.platform?.deptMonthlyPrice ?? 25000)
-                      ).toLocaleString()} د.ع
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex gap-3">
-                  <button onClick={() => setCreateType('center')} className={`flex-1 p-4 rounded-xl border-2 text-center transition-all ${createType === 'center' ? 'border-teal-500 bg-teal-50' : 'border-gray-200'}`}>
-                    <Building2 className={`w-8 h-8 mx-auto mb-2 ${createType === 'center' ? 'text-teal-600' : 'text-gray-400'}`} />
-                    <p className="font-bold">مركز طبي</p>
-                  </button>
-                  <button onClick={() => setCreateType('dept')} className={`flex-1 p-4 rounded-xl border-2 text-center transition-all ${createType === 'dept' ? 'border-teal-500 bg-teal-50' : 'border-gray-200'}`}>
-                    <Stethoscope className={`w-8 h-8 mx-auto mb-2 ${createType === 'dept' ? 'text-teal-600' : 'text-gray-400'}`} />
-                    <p className="font-bold">عيادة</p>
-                  </button>
-                </div>
-
-                <Button className="w-full" style={{ backgroundColor: '#5C7A6B' }} onClick={() => setStep(2)}>
-                  التالي <ArrowLeft className="w-4 h-4 mr-1" />
-                </Button>
-              </div>
-            )}
-
-            {/* ===== STEP 2: OTP Verification ===== */}
-            {step === 2 && (
-              <div className="space-y-4">
-                {/* Registration method toggle */}
-                {!otpSent && !verified && (
-                  <>
-                    <div className="flex gap-2 mb-2">
-                      <button
-                        onClick={() => { setRegMethod('gmail'); setIdentifier(''); }}
-                        className={`flex-1 p-3 rounded-lg border-2 text-center transition-all ${regMethod === 'gmail' ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
-                      >
-                        <Mail className={`w-6 h-6 mx-auto mb-1 ${regMethod === 'gmail' ? 'text-red-500' : 'text-gray-400'}`} />
-                        <p className="text-sm font-semibold">Gmail</p>
-                      </button>
-                      <button
-                        onClick={() => { setRegMethod('phone'); setIdentifier(''); }}
-                        className={`flex-1 p-3 rounded-lg border-2 text-center transition-all ${regMethod === 'phone' ? 'border-teal-400 bg-teal-50' : 'border-gray-200'}`}
-                      >
-                        <Smartphone className={`w-6 h-6 mx-auto mb-1 ${regMethod === 'phone' ? 'text-teal-600' : 'text-gray-400'}`} />
-                        <p className="text-sm font-semibold">موبايل</p>
-                      </button>
-                    </div>
-
-                    {/* Full Name */}
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-2">
-                        <User className="w-4 h-4" />
-                        الاسم الكامل <span className="text-red-500">*</span>
-                      </Label>
-                      <Input value={fullName} onChange={e => setFullName(e.target.value)} placeholder="الاسم الكامل" />
-                    </div>
-
-                    {/* Identifier: Gmail or Phone */}
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-2">
-                        {regMethod === 'gmail' ? <Mail className="w-4 h-4 text-red-500" /> : <Smartphone className="w-4 h-4 text-teal-600" />}
-                        {regMethod === 'gmail' ? 'بريد Gmail' : 'رقم الموبايل'} <span className="text-red-500">*</span>
-                      </Label>
-                      <Input
-                        value={identifier}
-                        onChange={e => setIdentifier(regMethod === 'phone' ? e.target.value.replace(/\D/g, '').slice(0, 11) : e.target.value)}
-                        placeholder={regMethod === 'gmail' ? 'example@gmail.com' : '07xxxxxxxx'}
-                        dir="ltr"
-                      />
-                      <p className="text-xs text-gray-400">
-                        {regMethod === 'gmail' ? 'يُسمح فقط بحسابات Gmail (@gmail.com)' : 'يجب أن يبدأ بـ 07 و11 رقماً'}
-                      </p>
-                    </div>
-
-                    {/* Username */}
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-2">
-                        <User className="w-4 h-4" />
-                        اسم المستخدم <span className="text-red-500">*</span>
-                      </Label>
-                      <Input value={username} onChange={e => setUsername(e.target.value.replace(/\s/g, ''))} placeholder="اسم المستخدم للدخول" dir="ltr" />
-                      <p className="text-xs text-gray-400">اسم فريد لتسجيل الدخول (بدون مسافات)</p>
-                    </div>
-
-                    {/* Password */}
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-2">
-                        <Lock className="w-4 h-4" />
-                        كلمة المرور <span className="text-red-500">*</span>
-                      </Label>
-                      <Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="6 أحرف على الأقل" dir="ltr" />
-                    </div>
-
-                    {/* Confirm Password */}
-                    <div className="space-y-2">
-                      <Label>تأكيد كلمة المرور <span className="text-red-500">*</span></Label>
-                      <Input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="أعد كتابة كلمة المرور" dir="ltr" />
-                    </div>
-
-                    <Button
-                      onClick={handleSendOTP}
-                      disabled={loading}
-                      className="w-full bg-teal-600 hover:bg-teal-700 gap-2"
-                    >
-                      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
-                      {loading ? 'جاري الإرسال...' : 'إرسال رمز التحقق'}
-                    </Button>
-                  </>
-                )}
-
-                {/* OTP Input (after sending) */}
-                {otpSent && !verified && (
-                  <div className="text-center space-y-4">
-                    <div className="bg-amber-50 p-4 rounded-xl border border-amber-200">
-                      <Shield className="w-10 h-10 text-amber-600 mx-auto mb-2" />
-                      <p className="text-lg font-bold text-amber-800">تم إرسال رمز التحقق!</p>
-                      <p className="text-sm text-amber-600 mt-1">
-                        تم الإرسال إلى <strong dir="ltr">{identifier}</strong>
-                      </p>
-                    </div>
-
-                    {simulatedOTP && (
-                      <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 text-center">
-                        <p className="text-xs text-blue-500 mb-1">رمز التحقق (للتجربة)</p>
-                        <p className="text-2xl font-bold text-blue-700 tracking-[0.3em]" dir="ltr">{simulatedOTP}</p>
+          {visibleCenters.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {visibleCenters.map(c => {
+                const depts = getDepartmentsByCenter(c.id);
+                return (
+                  <Card key={c.id} className="overflow-hidden hover:shadow-xl transition-all border-0 shadow-sm">
+                    {/* Promo Images */}
+                    {c.promoImages && c.promoImages.length > 0 && (
+                      <div className="relative h-48 bg-gray-100">
+                        <img src={c.promoImages[0]} alt={c.name} className="w-full h-full object-cover" />
+                        {c.promoImages.length > 1 && (
+                          <div className="absolute bottom-2 right-2 flex gap-1">
+                            {c.promoImages.map((_, i) => (
+                              <div key={i} className="w-2 h-2 rounded-full bg-white/80" />
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
-
-                    <div className="space-y-2">
-                      <Label>رمز التحقق (6 أرقام)</Label>
-                      <Input
-                        value={otpCode}
-                        onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                        placeholder="000000"
-                        dir="ltr"
-                        className="text-center text-2xl tracking-[0.5em] font-bold"
-                        maxLength={6}
-                      />
+                    <div className="p-6">
+                      {/* Logo + Name */}
+                      <div className="text-center mb-3">
+                        {c.logo ? (
+                          <img src={c.logo} alt={c.name} className="w-16 h-16 mx-auto rounded-xl object-contain mb-2" />
+                        ) : (
+                          <Building2 className="w-10 h-10 mx-auto text-teal-600 mb-2" />
+                        )}
+                        <h3 className="text-lg font-bold text-gray-900">{c.name}</h3>
+                      </div>
+                      {/* Promo Text */}
+                      {c.promoText && (
+                        <p className="text-sm text-gray-600 mb-3 bg-teal-50 p-3 rounded-lg text-center">{c.promoText}</p>
+                      )}
+                      {/* Info */}
+                      <div className="text-center text-sm text-gray-500 mb-3 space-y-1">
+                        <p><MapPin className="w-4 h-4 inline text-gray-400 ml-1" />{c.address || 'غير محدد'}</p>
+                        <p dir="ltr"><Phone className="w-4 h-4 inline text-gray-400 ml-1" />{c.phone}</p>
+                      </div>
+                      {/* Dept count */}
+                      <p className="text-center text-xs text-gray-400 mb-4">
+                        <Stethoscope className="w-3 h-3 inline ml-1" />{depts.length} تخصص | <Clock className="w-3 h-3 inline ml-1" />كشف {c.consultationDuration} دقيقة
+                      </p>
+                      {/* Buttons */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button className="bg-teal-600 hover:bg-teal-700" size="sm" onClick={() => navigate(`/center/${c.id}/booking`)}>
+                          <CalendarDays className="w-4 h-4" /> احجز
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => navigate(`/center/${c.id}`)}>
+                          <ExternalLink className="w-4 h-4" /> تفاصيل
+                        </Button>
+                      </div>
                     </div>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
 
-                    <Button
-                      onClick={handleVerifyOTP}
-                      disabled={loading || otpCode.length !== 6}
-                      className="w-full bg-teal-600 hover:bg-teal-700 gap-2"
-                    >
-                      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                      {loading ? 'جاري التحقق...' : 'تحقق'}
-                    </Button>
+      {/* ===== FOOTER ===== */}
+      <footer className="bg-slate-900 text-slate-400 py-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center">
+            <img src="/assets/linex-logo-transparent.png" alt="LinkEX" className="h-16 mx-auto mb-4" />
+            <h3 className="text-xl font-bold text-white mb-2">Link Express</h3>
+            <p className="text-sm text-slate-500 mb-6">منصة إدارة الحجوزات الإلكترونية</p>
 
-                    <div className="text-center">
-                      <button
-                        onClick={handleResendOTP}
-                        disabled={otpCooldown > 0 || loading}
-                        className="text-sm text-teal-600 hover:text-teal-700 disabled:text-gray-400 disabled:cursor-not-allowed"
-                      >
-                        {otpCooldown > 0 ? `إعادة الإرسال بعد ${otpCooldown} ث` : 'إعادة إرسال الرمز'}
-                      </button>
-                    </div>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-6 text-sm">
+              <a href="mailto:info@nidaba.org" className="flex items-center gap-2 hover:text-teal-400 transition-colors">
+                <Mail className="w-4 h-4" />
+                <span>info@nidaba.org</span>
+              </a>
+              <a href="tel:009647904414044" className="flex items-center gap-2 hover:text-teal-400 transition-colors" dir="ltr">
+                <Phone className="w-4 h-4" />
+                <span>009647904414044</span>
+              </a>
+              <span className="flex items-center gap-2 text-teal-400">
+                <ExternalLink className="w-4 h-4" />
+                <span>linkexpress.nidaba.org</span>
+              </span>
+            </div>
 
-                    <button
-                      onClick={() => { setOtpSent(false); setOtpCode(''); setSimulatedOTP(''); }}
-                      className="w-full text-center text-sm text-gray-400 hover:text-gray-600"
-                    >
-                      تغيير {regMethod === 'gmail' ? 'البريد' : 'الرقم'}
-                    </button>
+            <div className="mt-8 pt-6 border-t border-slate-800 text-xs">
+              <p>جميع الحقوق محفوظة &copy; 2025 Link Express</p>
+            </div>
+          </div>
+        </div>
+      </footer>
+
+      {/* ===== CREATE MODAL ===== */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => { setShowCreateModal(false); resetForm(); }}>
+          <Card className="w-full max-w-lg max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900">{createType === 'center' ? 'إنشاء مركز طبي جديد' : 'إنشاء عيادة جديدة'}</h3>
+              <Button variant="ghost" size="sm" onClick={() => { setShowCreateModal(false); resetForm(); }}><X className="w-4 h-4" /></Button>
+            </div>
+            {step === 1 && (
+              <div className="space-y-4">
+                <p className="text-sm text-gray-500 mb-4">اختر نوع الصفحة</p>
+                <button onClick={() => setCreateType('center')} className={`w-full p-4 rounded-xl border-2 text-right transition-all ${createType === 'center' ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                  <div className="flex items-center gap-3">
+                    <Building2 className={`w-8 h-8 ${createType === 'center' ? 'text-teal-600' : 'text-gray-400'}`} />
+                    <div><p className="font-bold text-gray-900">مركز طبي</p><p className="text-sm text-gray-500">صفحة تعريفية + حجز مواعيد</p></div>
                   </div>
-                )}
-
-                {/* Verified */}
-                {verified && (
-                  <div className="bg-green-50 p-4 rounded-xl border border-green-200 text-center">
-                    <CheckCircle2 className="w-10 h-10 text-green-600 mx-auto mb-2" />
-                    <p className="text-lg font-bold text-green-800">تم التحقق بنجاح!</p>
-                    <p className="text-sm text-green-600">يمكنك الآن إكمال التسجيل</p>
+                </button>
+                <button onClick={() => setCreateType('dept')} className={`w-full p-4 rounded-xl border-2 text-right transition-all ${createType === 'dept' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                  <div className="flex items-center gap-3">
+                    <Stethoscope className={`w-8 h-8 ${createType === 'dept' ? 'text-blue-600' : 'text-gray-400'}`} />
+                    <div><p className="font-bold text-gray-900">عيادة</p><p className="text-sm text-gray-500">صفحة حجز لقسم داخل مركز أو مستقل</p></div>
                   </div>
-                )}
-
-                {/* Navigation buttons */}
+                </button>
+                <Button className="w-full bg-teal-600 hover:bg-teal-700" onClick={() => setStep(2)}>التالي</Button>
+              </div>
+            )}
+            {step === 2 && (
+              <div className="space-y-4">
+                <p className="text-sm text-gray-500 mb-4">اختر نوع الاشتراك</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={() => setActivationType('free')} className={`p-4 rounded-xl border-2 text-center transition-all ${activationType === 'free' ? 'border-purple-500 bg-purple-50' : 'border-gray-200'}`}>
+                    <p className="font-bold">مجاني</p><p className="text-xs text-gray-500">7 أيام</p>
+                  </button>
+                  <button onClick={() => setActivationType('paid')} className={`p-4 rounded-xl border-2 text-center transition-all ${activationType === 'paid' ? 'border-amber-500 bg-amber-50' : 'border-gray-200'}`}>
+                    <p className="font-bold">مدفوع</p><p className="text-xs text-gray-500">{createType === 'center' ? pricing.platform.centerMonthlyPrice : pricing.platform.deptMonthlyPrice} د.ع/شهر</p>
+                  </button>
+                </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1" onClick={() => setStep(1)}>
-                    <ArrowRight className="w-4 h-4 ml-1" /> رجوع
-                  </Button>
-                  {verified && (
-                    <Button className="flex-1" style={{ backgroundColor: '#5C7A6B' }} onClick={handleStep2Next}>
-                      أكمل التسجيل <ArrowLeft className="w-4 h-4 mr-1" />
-                    </Button>
-                  )}
+                  <Button variant="outline" className="flex-1" onClick={() => setStep(1)}>رجوع</Button>
+                  <Button className="flex-1 bg-teal-600 hover:bg-teal-700" onClick={() => setStep(3)}>التالي</Button>
                 </div>
               </div>
             )}
-
-            {/* ===== STEP 3: Center/Dept Details ===== */}
             {step === 3 && (
               <div className="space-y-4">
                 {createType === 'center' ? (
                   <>
-                    <div className="space-y-2">
-                      <Label>اسم المركز <span className="text-red-500">*</span></Label>
-                      <Input value={cName} onChange={e => setCName(e.target.value)} placeholder="اسم المركز الطبي" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>العنوان</Label>
-                      <Input value={cAddress} onChange={e => setCAddress(e.target.value)} placeholder="عنوان المركز" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>رقم الموبايل <span className="text-red-500">*</span></Label>
-                      <Input value={cPhone} onChange={e => setCPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="07xxxxxxxx" dir="ltr" />
-                      <p className="text-xs text-gray-400">يجب أن يبدأ بـ 07 و11 رقماً</p>
-                    </div>
+                    <div className="space-y-2"><Label>اسم المركز الطبي <span className="text-red-500">*</span></Label><Input value={cForm.name} onChange={e => setCForm({ ...cForm, name: e.target.value })} placeholder="مثال: مركز الشفاء الطبي" /></div>
+                    <div className="space-y-2"><Label>العنوان</Label><Input value={cForm.address} onChange={e => setCForm({ ...cForm, address: e.target.value })} placeholder="بغداد - الكرادة" /></div>
+                    <div className="space-y-2"><Label>رقم الموبايل <span className="text-red-500">*</span></Label><Input value={cForm.phone} onChange={e => setCForm({ ...cForm, phone: e.target.value.replace(/\D/g, '').slice(0, 11) })} placeholder="07xxxxxxxx" dir="ltr" /></div>
+                    <div className="space-y-2"><Label>البريد الإلكتروني</Label><Input value={cForm.email} onChange={e => setCForm({ ...cForm, email: e.target.value })} placeholder="email@example.com" dir="ltr" /></div>
                   </>
                 ) : (
                   <>
-                    <div className="space-y-2">
-                      <Label>اسم العيادة <span className="text-red-500">*</span></Label>
-                      <Input value={dName} onChange={e => setDName(e.target.value)} placeholder="اسم العيادة" />
+                    <div className="space-y-2"><Label>المركز التابع (اختياري)</Label>
+                      <select value={dForm.centerId} onChange={e => setDForm({ ...dForm, centerId: e.target.value })} className="w-full h-10 rounded-md border border-input bg-white px-3 text-sm">
+                        <option value="">-- قسم مستقل --</option>
+                        {activeCenters.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
+                      </select>
                     </div>
-                    <div className="space-y-2">
-                      <Label>الوصف</Label>
-                      <Input value={dDesc} onChange={e => setDDesc(e.target.value)} placeholder="وصف العيادة" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>اسم الطبيب <span className="text-red-500">*</span></Label>
-                      <Input value={dDoctor} onChange={e => setDDoctor(e.target.value)} placeholder="اسم الطبيب المختص" />
-                    </div>
+                    <div className="space-y-2"><Label>اسم القسم / التخصص <span className="text-red-500">*</span></Label><Input value={dForm.name} onChange={e => setDForm({ ...dForm, name: e.target.value })} placeholder="مثال: قسم العظام" /></div>
+                    <div className="space-y-2"><Label>الوصف</Label><Input value={dForm.description} onChange={e => setDForm({ ...dForm, description: e.target.value })} placeholder="وصف مختصر" /></div>
+                    <div className="space-y-2"><Label>إيميل الطبيب</Label><Input value={dForm.doctorEmail} onChange={e => setDForm({ ...dForm, doctorEmail: e.target.value })} placeholder="doctor@email.com" dir="ltr" /></div>
                   </>
                 )}
-
+                <div className="border-t pt-4 space-y-2">
+                  <Label>اسم المستخدم <span className="text-red-500">*</span></Label><Input value={adminForm.username} onChange={e => setAdminForm({ ...adminForm, username: e.target.value })} placeholder="اسم المستخدم" dir="ltr" />
+                  <Label>كلمة المرور <span className="text-red-500">*</span></Label><Input value={adminForm.password} onChange={e => setAdminForm({ ...adminForm, password: e.target.value })} placeholder="••••••" dir="ltr" type="password" />
+                </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1" onClick={() => setStep(2)}>
-                    <ArrowRight className="w-4 h-4 ml-1" /> رجوع
-                  </Button>
-                  <Button
-                    onClick={handleCreate}
-                    disabled={loading}
-                    className="flex-1"
-                    style={{ backgroundColor: '#5C7A6B' }}
-                  >
-                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'إنشاء الحساب'}
+                  <Button variant="outline" className="flex-1" onClick={() => setStep(2)}>رجوع</Button>
+                  <Button className="flex-1 bg-teal-600 hover:bg-teal-700" onClick={handleCreate} disabled={(createType === 'center' ? !cForm.name || !cForm.phone : !dForm.name) || !adminForm.username || !adminForm.password}>
+                    <Save className="w-4 h-4" /> إنشاء
                   </Button>
                 </div>
               </div>
