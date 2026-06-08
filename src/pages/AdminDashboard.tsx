@@ -116,14 +116,26 @@ export default function AdminDashboard() {
     else setLoginForm(p => ({ ...p, error: 'اسم المستخدم أو كلمة المرور غير صحيحة' }));
   };
 
+  const isValidPhone = (phone: string): boolean => /^07\d{9}$/.test(phone.replace(/\s/g, ''));
+  const isGmail = (email: string): boolean => email.toLowerCase().endsWith('@gmail.com');
+
   const createCenter = async () => {
-    if (!cForm.name || !cForm.phone) return;
+    // Validate center info
+    if (!cForm.name || !cForm.phone) { showMsg('أدخل اسم المركز ورقم الموبايل'); return; }
+    if (!isValidPhone(cForm.phone)) { showMsg('رقم الموبايل يجب أن يكون 11 رقماً يبدأ بـ 07'); return; }
+    if (!cForm.email || !isGmail(cForm.email)) { showMsg('أدخل بريد Gmail صحيح'); return; }
+    
+    // Validate admin info
+    if (!aForm.fullName || !aForm.email || !aForm.phone || !aForm.username || !aForm.password) { showMsg('أدخل جميع بيانات المدير'); return; }
+    if (!isGmail(aForm.email)) { showMsg('بريد المدير يجب أن يكون Gmail'); return; }
+    if (!isValidPhone(aForm.phone)) { showMsg('رقم موبايل المدير يجب أن يكون 11 رقماً يبدأ بـ 07'); return; }
+    if (aForm.password.length < 6) { showMsg('كلمة المرور يجب أن تكون 6 أحرف على الأقل'); return; }
     
     // Use global trial settings
     const trialDays = pricing.trial?.enabled ? (pricing.trial?.trialDays || 10) : 0;
     
     // Check for duplicate username
-    const username = aForm.username || 'admin_' + Date.now().toString(36).slice(-6);
+    const username = aForm.username;
     const allAdmins = await (async () => {
       const stored = localStorage.getItem('linex_admins');
       if (stored) return JSON.parse(stored);
@@ -136,7 +148,7 @@ export default function AdminDashboard() {
     }
     
     const aid = 'admin-' + Date.now();
-    const result = addAdmin({ id: aid, fullName: aForm.fullName || 'أدمن ' + cForm.name, username, password: aForm.password || '123456', role: 'center', phone: aForm.phone || cForm.phone, email: aForm.email || cForm.email, isActive: true, createdAt: new Date().toISOString() });
+    const result = addAdmin({ id: aid, fullName: aForm.fullName, username, password: aForm.password, role: 'center', phone: aForm.phone, email: aForm.email, isActive: true, createdAt: new Date().toISOString() });
     if (result) { showMsg(result); return; }
 
     const center: Center = { 
@@ -163,13 +175,20 @@ export default function AdminDashboard() {
   };
 
   const createDept = async () => {
-    if (!dForm.name) return;
+    // Validate dept info
+    if (!dForm.name) { showMsg('أدخل اسم العيادة'); return; }
+    
+    // Validate admin info
+    if (!aForm.fullName || !aForm.email || !aForm.phone || !aForm.username || !aForm.password) { showMsg('أدخل جميع بيانات المدير'); return; }
+    if (!isGmail(aForm.email)) { showMsg('بريد المدير يجب أن يكون Gmail'); return; }
+    if (!isValidPhone(aForm.phone)) { showMsg('رقم موبايل المدير يجب أن يكون 11 رقماً يبدأ بـ 07'); return; }
+    if (aForm.password.length < 6) { showMsg('كلمة المرور يجب أن تكون 6 أحرف على الأقل'); return; }
     
     // Use global trial settings
     const trialDays = pricing.trial?.enabled ? (pricing.trial?.trialDays || 10) : 0;
     
     // Check for duplicate username
-    const username = aForm.username || 'admin_' + Date.now().toString(36).slice(-6);
+    const username = aForm.username;
     const allAdmins = await (async () => {
       const stored = localStorage.getItem('linex_admins');
       if (stored) return JSON.parse(stored);
@@ -182,7 +201,7 @@ export default function AdminDashboard() {
     }
     
     const aid = 'admin-' + Date.now();
-    const result = addAdmin({ id: aid, fullName: aForm.fullName || 'أدمن ' + dForm.name, username, password: aForm.password || '123456', role: 'department', phone: aForm.phone || '', email: aForm.email || dForm.doctorEmail, isActive: true, createdAt: new Date().toISOString() });
+    const result = addAdmin({ id: aid, fullName: aForm.fullName, username, password: aForm.password, role: 'department', phone: aForm.phone, email: aForm.email, isActive: true, createdAt: new Date().toISOString() });
     if (result) { showMsg(result); return; }
 
     const dept: Department = { 
@@ -1025,16 +1044,17 @@ export default function AdminDashboard() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-1 md:col-span-2"><Label className="text-xs">اسم المركز الطبي <span className="text-red-500">*</span></Label><Input value={cForm.name} onChange={e => setCForm({ ...cForm, name: e.target.value })} placeholder="مثال: مركز الشفاء الطبي" /></div>
                 <div className="space-y-1 md:col-span-2"><Label className="text-xs">العنوان</Label><Input value={cForm.address} onChange={e => setCForm({ ...cForm, address: e.target.value })} placeholder="عنوان المركز" /></div>
-                <div className="space-y-1"><Label className="text-xs">رقم الموبايل <span className="text-red-500">*</span></Label><Input value={cForm.phone} onChange={e => setCForm({ ...cForm, phone: e.target.value })} placeholder="07xxxxxxxx" dir="ltr" /></div>
-                <div className="space-y-1"><Label className="text-xs">البريد الإلكتروني</Label><Input value={cForm.email} onChange={e => setCForm({ ...cForm, email: e.target.value })} placeholder="email@example.com" dir="ltr" /></div>
+                <div className="space-y-1"><Label className="text-xs">رقم الموبايل <span className="text-red-500">*</span></Label><Input value={cForm.phone} onChange={e => setCForm({ ...cForm, phone: e.target.value.replace(/\D/g, '').slice(0, 11) })} placeholder="07xxxxxxxx (11 رقم)" dir="ltr" /><p className="text-xs text-gray-400">يجب أن يبدأ بـ 07 و11 رقماً</p></div>
+                <div className="space-y-1"><Label className="text-xs">البريد الإلكتروني <span className="text-red-500">*</span></Label><Input value={cForm.email} onChange={e => setCForm({ ...cForm, email: e.target.value })} placeholder="example@gmail.com" dir="ltr" /><p className="text-xs text-gray-400">Gmail فقط</p></div>
               </div>
               <Separator />
               <h4 className="font-semibold text-sm bg-gray-50 p-2 rounded">مدير المركز الطبي</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-1"><Label className="text-xs">الاسم الكامل</Label><Input value={aForm.fullName} onChange={e => setAForm({ ...aForm, fullName: e.target.value })} placeholder="اسم المدير" /></div>
-                <div className="space-y-1"><Label className="text-xs">اسم المستخدم</Label><Input value={aForm.username} onChange={e => setAForm({ ...aForm, username: e.target.value })} placeholder="username" dir="ltr" /></div>
-                <div className="space-y-1"><Label className="text-xs">كلمة المرور</Label><Input value={aForm.password} onChange={e => setAForm({ ...aForm, password: e.target.value })} placeholder="••••••" dir="ltr" type="password" /></div>
-                <div className="space-y-1"><Label className="text-xs">رقم الموبايل</Label><Input value={aForm.phone} onChange={e => setAForm({ ...aForm, phone: e.target.value })} placeholder="07xxxxxxxx" dir="ltr" /></div>
+                <div className="space-y-1"><Label className="text-xs">الاسم الكامل <span className="text-red-500">*</span></Label><Input value={aForm.fullName} onChange={e => setAForm({ ...aForm, fullName: e.target.value })} placeholder="اسم المدير" /></div>
+                <div className="space-y-1"><Label className="text-xs">البريد الإلكتروني (Gmail) <span className="text-red-500">*</span></Label><Input value={aForm.email || ''} onChange={e => setAForm({ ...aForm, email: e.target.value })} placeholder="example@gmail.com" dir="ltr" /><p className="text-xs text-gray-400">يُسمح فقط بحسابات Gmail</p></div>
+                <div className="space-y-1"><Label className="text-xs">رقم الموبايل <span className="text-red-500">*</span></Label><Input value={aForm.phone} onChange={e => setAForm({ ...aForm, phone: e.target.value.replace(/\D/g, '').slice(0, 11) })} placeholder="07xxxxxxxx (11 رقم)" dir="ltr" /><p className="text-xs text-gray-400">يجب أن يبدأ بـ 07 و11 رقماً</p></div>
+                <div className="space-y-1"><Label className="text-xs">اسم المستخدم <span className="text-red-500">*</span></Label><Input value={aForm.username} onChange={e => setAForm({ ...aForm, username: e.target.value })} placeholder="username" dir="ltr" /></div>
+                <div className="space-y-1"><Label className="text-xs">كلمة المرور <span className="text-red-500">*</span></Label><Input value={aForm.password} onChange={e => setAForm({ ...aForm, password: e.target.value })} placeholder="••••••" dir="ltr" type="password" /></div>
               </div>
               <Button onClick={createCenter} disabled={!cForm.name || !cForm.phone} className="w-full bg-teal-600 hover:bg-teal-700 gap-2"><Save className="w-4 h-4" />إنشاء المركز الطبي ومديره</Button>
             </div>
