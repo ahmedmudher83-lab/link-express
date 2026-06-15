@@ -39,6 +39,7 @@ interface AuthContextType {
   softDeleteAdmin: (adminId: string, deletedBy?: string) => Promise<void>;
   restoreAdmin: (adminId: string) => Promise<void>;
   getDeletedAdmins: () => Admin[];
+  findDeletedAccountByEmail: (email: string) => Admin | null;
   // OTP Registration
   sendOTP: (identifier: string, method: 'gmail' | 'phone') => Promise<{ success: boolean; otpCode?: string; error?: string; cooldown?: number }>;
   verifyOTP: (identifier: string, code: string, method: 'gmail' | 'phone') => Promise<{ success: boolean; error?: string }>;
@@ -185,6 +186,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const getAllAdmins = useCallback((): Admin[] => admins, [admins]);
 
+  // Check if there's a soft-deleted account with this email
+  const findDeletedAccountByEmail = useCallback((email: string): Admin | null => {
+    if (!email) return null;
+    const all = getAdmins();
+    const found = all.find(a => a.email?.toLowerCase() === email.toLowerCase() && (a as any).deleted === true);
+    return found || null;
+  }, []);
+
   const addAdmin = useCallback((admin: Admin): string | null => {
     const all = getAdmins();
     // Find any existing account with same email or username
@@ -194,10 +203,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Helper: check if an admin's associated center/department still exists
     const isOrphaned = (a: Admin): boolean => {
       if (a.role === 'center' && a.centerId) {
-        return !getCenters().find(c => c.id === a.centerId);
+        return !getCenters(true).find(c => c.id === a.centerId);
       }
       if (a.role === 'department' && a.departmentId) {
-        return !getDepartments().find(d => d.id === a.departmentId);
+        return !getDepartments(true).find(d => d.id === a.departmentId);
       }
       return false;
     };
@@ -320,7 +329,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       auth, loading, login, logout,
-      getAllAdmins, addAdmin, updateAdmin, removeAdmin, softDeleteAdmin, restoreAdmin, getDeletedAdmins,
+      getAllAdmins, addAdmin, updateAdmin, removeAdmin, softDeleteAdmin, restoreAdmin, getDeletedAdmins, findDeletedAccountByEmail,
       getAdminsByRole, getAdminById,
       getAdminByCenterId, getAdminByDepartmentId,
       sendOTP: sendOTPHandler, verifyOTP: verifyOTPHandler,

@@ -32,7 +32,7 @@ function isSuperAdminProtected(adminId: string, adminEmail?: string): boolean {
 }
 
 export default function AdminDashboard() {
-  const { auth, login, logout, addAdmin, getAdminById, updateAdmin, changePassword, sendOTP, verifyOTP, getAdminByCenterId, getAdminByDepartmentId, removeAdmin } = useAuth();
+  const { auth, login, logout, addAdmin, getAdminById, updateAdmin, changePassword, sendOTP, verifyOTP, getAdminByCenterId, getAdminByDepartmentId, removeAdmin, findDeletedAccountByEmail, restoreAdmin } = useAuth();
   const {
     centers, departments, logs, pricing,
     addCenter, closeCenter, softDeleteCenter, restoreCenter,
@@ -63,6 +63,9 @@ export default function AdminDashboard() {
   const [customPrices, setCustomPrices] = useState({ platformPrice: 0, platformTrial: 7, appearancePrice: 0, appearanceTrial: 3 });
   const [msg, setMsg] = useState('');
   const showMsg = (t: string) => { setMsg(t); setTimeout(() => setMsg(''), 3000); };
+
+  // Restore deleted account dialog
+  const [restoreDialog, setRestoreDialog] = useState<{ show: boolean; email: string; adminId: string; entityName: string; entityType: 'center' | 'department'; entityId: string; pendingAction: 'center' | 'dept' } | null>(null);
 
   // Center form
   const [cForm, setCForm] = useState({
@@ -165,12 +168,29 @@ export default function AdminDashboard() {
     // Use global trial settings
     const trialDays = pricing.trial?.enabled ? (pricing.trial?.trialDays || 10) : 0;
 
-    const aid = 'admin-' + Date.now();
-    const result = addAdmin({ id: aid, fullName: aForm.fullName, username, password: aForm.password, role: 'center', phone: cForm.phone, email: aForm.email, isActive: true, createdAt: new Date().toISOString() });
-    if (result) { showMsg(result); return; }
+    // Check if there's a soft-deleted account with this email
+    const deletedAccount = findDeletedAccountByEmail(aForm.email);
+    if (deletedAccount) {
+      // Find the associated deleted entity
+      const allCenters = JSON.parse(localStorage.getItem('linex_centers') || '[]');
+      const deletedEntity = allCenters.find((c: Center) => c.adminId === deletedAccount.id && c.deleted);
+      if (deletedEntity) {
+        setRestoreDialog({
+          show: true, email: aForm.email, adminId: deletedAccount.id,
+          entityName: deletedEntity.name, entityType: 'center', entityId: deletedEntity.id,
+          pendingAction: 'center'
+        });
+        return; // Stop creation, wait for user choice
+      }
+    }
 
+    // Generate IDs
+    const cid = 'center-' + Date.now();
+    const aid = 'admin-' + Date.now();
+
+    // Create center FIRST (references admin)
     const center: Center = {
-      id: 'center-' + Date.now(), name: cForm.name, address: cForm.address, phone: cForm.phone, email: aForm.email, logo: '', workingDays: cForm.workingDays, workingHours: cForm.workingHours, fridayHours: cForm.fridayHours, emergencyHours: cForm.emergencyHours, consultationDuration: 15, doctors: [], adminId: aid,
+      id: cid, name: cForm.name, address: cForm.address, phone: cForm.phone, email: aForm.email, logo: '', workingDays: cForm.workingDays, workingHours: cForm.workingHours, fridayHours: cForm.fridayHours, emergencyHours: cForm.emergencyHours, consultationDuration: 15, doctors: [], adminId: aid,
       activationType: 'paid',
       subscriptionPrice: cForm.subscriptionPrice,
       freeTrialDays: trialDays,
@@ -185,6 +205,11 @@ export default function AdminDashboard() {
       promoText: ''
     };
     addCenter(center);
+
+    // Then create admin WITH centerId (two-way link)
+    const result = addAdmin({ id: aid, fullName: aForm.fullName, username, password: aForm.password, role: 'center', phone: cForm.phone, email: aForm.email, isActive: true, centerId: cid, createdAt: new Date().toISOString() });
+    if (result) { showMsg(result); return; }
+
     addLog({ id: 'log-' + Date.now(), action: 'create_center', adminName: auth.admin?.fullName || '', targetName: center.name, timestamp: new Date().toISOString(), details: `إنشاء مركز "${center.name}" - اشتراك مدفوع` });
     setShowCenterModal(false);
     setCForm({ name: '', address: '', phone: '', email: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', emergencyHours: '24 ساعة', activationType: 'paid', subscriptionPrice: pricing.platform.centerMonthlyPrice, freeTrialDays: pricing.trial?.trialDays || 10 });
@@ -210,12 +235,28 @@ export default function AdminDashboard() {
     // Use global trial settings
     const trialDays = pricing.trial?.enabled ? (pricing.trial?.trialDays || 10) : 0;
 
-    const aid = 'admin-' + Date.now();
-    const result = addAdmin({ id: aid, fullName: aForm.fullName, username, password: aForm.password, role: 'department', phone: '', email: aForm.email, isActive: true, createdAt: new Date().toISOString() });
-    if (result) { showMsg(result); return; }
+    // Check if there's a soft-deleted account with this email
+    const deletedAccount = findDeletedAccountByEmail(aForm.email);
+    if (deletedAccount) {
+      const allDepts = JSON.parse(localStorage.getItem('linex_departments') || '[]');
+      const deletedEntity = allDepts.find((d: Department) => d.adminId === deletedAccount.id && d.deleted);
+      if (deletedEntity) {
+        setRestoreDialog({
+          show: true, email: aForm.email, adminId: deletedAccount.id,
+          entityName: deletedEntity.name, entityType: 'department', entityId: deletedEntity.id,
+          pendingAction: 'dept'
+        });
+        return; // Stop creation, wait for user choice
+      }
+    }
 
+    // Generate IDs
+    const did = 'dept-' + Date.now();
+    const aid = 'admin-' + Date.now();
+
+    // Create department FIRST (references admin)
     const dept: Department = {
-      id: 'dept-' + Date.now(), name: dForm.name, description: dForm.description, icon: dForm.icon, doctorName: '', doctorEmail: dForm.doctorEmail, doctorPhone: '', logo: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', consultationDuration: 15, centerId: dForm.centerId || null, adminId: aid,
+      id: did, name: dForm.name, description: dForm.description, icon: dForm.icon, doctorName: '', doctorEmail: dForm.doctorEmail, doctorPhone: '', logo: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', consultationDuration: 15, centerId: dForm.centerId || null, adminId: aid,
       activationType: 'paid',
       subscriptionPrice: dForm.subscriptionPrice,
       freeTrialDays: trialDays,
@@ -230,6 +271,11 @@ export default function AdminDashboard() {
       promoText: ''
     };
     addDepartment(dept);
+
+    // Then create admin WITH departmentId (two-way link)
+    const result = addAdmin({ id: aid, fullName: aForm.fullName, username, password: aForm.password, role: 'department', phone: '', email: aForm.email, isActive: true, departmentId: did, createdAt: new Date().toISOString() });
+    if (result) { showMsg(result); return; }
+
     const parent = dept.centerId ? centers.find(c => c.id === dept.centerId)?.name : 'مستقل';
     addLog({ id: 'log-' + Date.now(), action: 'create_department', adminName: auth.admin?.fullName || '', targetName: dept.name, timestamp: new Date().toISOString(), details: `إنشاء عيادة "${dept.name}" (${parent}) - اشتراك مدفوع` });
     setShowDeptModal(false);
@@ -1322,6 +1368,115 @@ export default function AdminDashboard() {
                 </Button>
               </div>
             </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ===== RESTORE DELETED ACCOUNT DIALOG ===== */}
+      {restoreDialog?.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <Card className="w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+            <div className="text-center mb-4">
+              <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-3" />
+              <h3 className="text-lg font-bold text-gray-900">يوجد حساب محذوف بنفس الإيميل</h3>
+            </div>
+            <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 mb-4">
+              <p className="text-sm text-gray-700 mb-2">
+                <strong>الإيميل:</strong> {restoreDialog.email}
+              </p>
+              <p className="text-sm text-gray-700 mb-2">
+                <strong>الـ{restoreDialog.entityType === 'center' ? 'مركز' : 'عيادة'} المحذوفة:</strong> {restoreDialog.entityName}
+              </p>
+              <p className="text-xs text-gray-500 mt-2">
+                هذا الحساب تم حذفه ناعماً سابقاً. يمكنك إما استعادته مع جميع بياناته، أو إنشاء حساب جديد (سيتم حذف القديم نهائياً).
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  // User chose NEW ACCOUNT - proceed with creation
+                  setRestoreDialog(null);
+                  // Continue with original creation by calling the appropriate function
+                  if (restoreDialog.pendingAction === 'center') {
+                    // Remove dialog flag and retry center creation
+                    const cid = 'center-' + Date.now();
+                    const aid = 'admin-' + Date.now();
+                    const trialDays = pricing.trial?.enabled ? (pricing.trial?.trialDays || 10) : 0;
+                    const center: Center = {
+                      id: cid, name: cForm.name, address: cForm.address, phone: cForm.phone, email: aForm.email, logo: '', workingDays: cForm.workingDays, workingHours: cForm.workingHours, fridayHours: cForm.fridayHours, emergencyHours: cForm.emergencyHours, consultationDuration: 15, doctors: [], adminId: aid,
+                      activationType: 'paid', subscriptionPrice: cForm.subscriptionPrice, freeTrialDays: trialDays,
+                      createdAt: new Date().toISOString(),
+                      expiresAt: new Date(Date.now() + (trialDays + 30) * 86400000).toISOString(),
+                      isPaid: true, isActive: true, status: (trialDays > 0 ? 'trial' : 'active') as Center['status'],
+                      appearanceType: 'free_trial', appearanceExpiry: new Date(Date.now() + 7 * 86400000).toISOString(),
+                      promoImages: [], promoText: ''
+                    };
+                    addCenter(center);
+                    const result = addAdmin({ id: aid, fullName: aForm.fullName, username: aForm.email.toLowerCase(), password: aForm.password, role: 'center', phone: cForm.phone, email: aForm.email, isActive: true, centerId: cid, createdAt: new Date().toISOString() });
+                    if (!result) {
+                      addLog({ id: 'log-' + Date.now(), action: 'create_center', adminName: auth.admin?.fullName || '', targetName: center.name, timestamp: new Date().toISOString(), details: `إنشاء مركز "${center.name}" - اشتراك مدفوع (حساب جديد بعد استبدال المحذوف)` });
+                      setShowCenterModal(false);
+                      setCForm({ name: '', address: '', phone: '', email: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', emergencyHours: '24 ساعة', activationType: 'paid', subscriptionPrice: pricing.platform.centerMonthlyPrice, freeTrialDays: pricing.trial?.trialDays || 10 });
+                      setAForm({ fullName: '', password: '', confirmPassword: '', email: '' });
+                      setOtpSent(false); setOtpVerified(false); setOtpCode(''); setOtpCooldown(0);
+                      showMsg('تم إنشاء المركز الطبي بنجاح (حساب جديد)');
+                    }
+                  } else {
+                    // Retry department creation
+                    const did = 'dept-' + Date.now();
+                    const aid = 'admin-' + Date.now();
+                    const trialDays = pricing.trial?.enabled ? (pricing.trial?.trialDays || 10) : 0;
+                    const dept: Department = {
+                      id: did, name: dForm.name, description: dForm.description, icon: dForm.icon, doctorName: '', doctorEmail: dForm.doctorEmail, doctorPhone: '', logo: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', consultationDuration: 15, centerId: dForm.centerId || null, adminId: aid,
+                      activationType: 'paid', subscriptionPrice: dForm.subscriptionPrice, freeTrialDays: trialDays,
+                      createdAt: new Date().toISOString(),
+                      expiresAt: new Date(Date.now() + (trialDays + 30) * 86400000).toISOString(),
+                      isPaid: true, isActive: true, status: (trialDays > 0 ? 'trial' : 'active') as Department['status'],
+                      appearanceType: 'free_trial', appearanceExpiry: new Date(Date.now() + 7 * 86400000).toISOString(),
+                      promoImages: [], promoText: ''
+                    };
+                    addDepartment(dept);
+                    const result = addAdmin({ id: aid, fullName: aForm.fullName, username: aForm.email.toLowerCase(), password: aForm.password, role: 'department', phone: '', email: aForm.email, isActive: true, departmentId: did, createdAt: new Date().toISOString() });
+                    if (!result) {
+                      const parent = dept.centerId ? centers.find(c => c.id === dept.centerId)?.name : 'مستقل';
+                      addLog({ id: 'log-' + Date.now(), action: 'create_department', adminName: auth.admin?.fullName || '', targetName: dept.name, timestamp: new Date().toISOString(), details: `إنشاء عيادة "${dept.name}" (${parent}) - اشتراك مدفوع (حساب جديد)` });
+                      setShowDeptModal(false);
+                      setDForm({ name: '', description: '', icon: 'Stethoscope', doctorEmail: '', centerId: '', activationType: 'paid', subscriptionPrice: pricing.platform.deptMonthlyPrice, freeTrialDays: pricing.trial?.trialDays || 10 });
+                      setAForm({ fullName: '', password: '', confirmPassword: '', email: '' });
+                      setOtpSent(false); setOtpVerified(false); setOtpCode(''); setOtpCooldown(0);
+                      showMsg('تم إنشاء القسم بنجاح (حساب جديد)');
+                    }
+                  }
+                }}
+              >
+                حساب جديد
+              </Button>
+              <Button
+                className="flex-1 bg-green-600 hover:bg-green-700 gap-2"
+                onClick={async () => {
+                  // User chose RESTORE - restore the deleted entity and admin
+                  if (restoreDialog.entityType === 'center') {
+                    await restoreCenter(restoreDialog.entityId);
+                  } else {
+                    await restoreDepartment(restoreDialog.entityId);
+                  }
+                  // Restore admin too
+                  await restoreAdmin(restoreDialog.adminId);
+                  setRestoreDialog(null);
+                  showMsg(`تم استعادة "${restoreDialog.entityName}" بنجاح!`);
+                  setCForm({ name: '', address: '', phone: '', email: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', emergencyHours: '24 ساعة', activationType: 'paid', subscriptionPrice: pricing.platform.centerMonthlyPrice, freeTrialDays: pricing.trial?.trialDays || 10 });
+                  setDForm({ name: '', description: '', icon: 'Stethoscope', doctorEmail: '', centerId: '', activationType: 'paid', subscriptionPrice: pricing.platform.deptMonthlyPrice, freeTrialDays: pricing.trial?.trialDays || 10 });
+                  setAForm({ fullName: '', password: '', confirmPassword: '', email: '' });
+                  setOtpSent(false); setOtpVerified(false); setOtpCode(''); setOtpCooldown(0);
+                }}
+              >
+                <RefreshCw className="w-4 h-4" />
+                استعادة القديم
+              </Button>
+            </div>
+            <Button variant="ghost" className="w-full mt-2" onClick={() => setRestoreDialog(null)}>إلغاء</Button>
           </Card>
         </div>
       )}
