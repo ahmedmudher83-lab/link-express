@@ -87,12 +87,29 @@ export default function Dashboard() {
   const [appearanceDays, setAppearanceDays] = useState(7);
   const [appearanceStartDate, setAppearanceStartDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // Google Calendar settings
+  // Google Calendar settings (per-doctor, not per-center)
   const [showCalendarSettings, setShowCalendarSettings] = useState(false);
   const [calendarForm, setCalendarForm] = useState({
     enabled: false,
     googleEmail: '',
     calendarId: 'primary',
+  });
+  // Per-doctor calendar/report modal
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string | null>(null);
+  const [showDoctorCalendarModal, setShowDoctorCalendarModal] = useState(false);
+  const [showDoctorReportModal, setShowDoctorReportModal] = useState(false);
+  const [doctorCalendarForm, setDoctorCalendarForm] = useState({
+    enabled: false,
+    googleEmail: '',
+    calendarId: 'primary',
+  });
+  const [doctorReportForm, setDoctorReportForm] = useState({
+    enabled: false,
+    reportTime: '11:00',
+    sendToEmail: true,
+    sendToWhatsApp: true,
+    whatsappNumber: '',
+    doctorEmail: '',
   });
 
   // Daily report settings
@@ -110,6 +127,30 @@ export default function Dashboard() {
   const [todayBookings, setTodayBookings] = useState<BookingRecord[]>([]);
 
   const showMsg = (t: string) => { setMsg(t); setTimeout(() => setMsg(''), 4000); };
+
+  // Helper: load/save per-doctor calendar & report settings
+  const getDoctorCalendarKey = (docId: string) => `calendar_doctor_${docId}`;
+  const getDoctorReportKey = (docId: string) => `report_doctor_${docId}`;
+  const loadDoctorCalendar = (docId: string) => {
+    try { const s = localStorage.getItem(getDoctorCalendarKey(docId)); return s ? JSON.parse(s) : null; } catch { return null; }
+  };
+  const loadDoctorReport = (docId: string) => {
+    try { const s = localStorage.getItem(getDoctorReportKey(docId)); return s ? JSON.parse(s) : null; } catch { return null; }
+  };
+  const openDoctorCalendar = (docId: string) => {
+    setSelectedDoctorId(docId);
+    const saved = loadDoctorCalendar(docId);
+    if (saved) { setDoctorCalendarForm({ enabled: saved.enabled || false, googleEmail: saved.googleEmail || '', calendarId: saved.calendarId || 'primary' }); }
+    else { setDoctorCalendarForm({ enabled: false, googleEmail: '', calendarId: 'primary' }); }
+    setShowDoctorCalendarModal(true);
+  };
+  const openDoctorReport = (docId: string) => {
+    setSelectedDoctorId(docId);
+    const saved = loadDoctorReport(docId);
+    if (saved) { setDoctorReportForm({ enabled: saved.enabled || false, reportTime: saved.reportTime || '11:00', sendToEmail: saved.sendToEmail !== false, sendToWhatsApp: saved.sendToWhatsApp !== false, whatsappNumber: saved.whatsappNumber || '', doctorEmail: saved.doctorEmail || '' }); }
+    else { setDoctorReportForm({ enabled: false, reportTime: '11:00', sendToEmail: true, sendToWhatsApp: true, whatsappNumber: '', doctorEmail: '' }); }
+    setShowDoctorReportModal(true);
+  };
 
   // Get active announcements for this admin
   const activeAnns = auth.admin ? getActiveAnnouncements(auth.admin.id) : [];
@@ -779,7 +820,7 @@ export default function Dashboard() {
               </div>
 
               <div className="flex flex-wrap gap-4 text-xs text-gray-400">
-                <span>مدة الكشف: {isCenter ? (cEntity?.consultationDuration || 15) : (dEntity?.consultationDuration || 15)} دقيقة</span>
+                {!isCenter && <span>مدة الكشف: {dEntity?.consultationDuration || 15} دقيقة</span>}
                 <span>فترة التجربة: {entity.freeTrialDays} يوم</span>
                 {entity.status !== 'closed' && <span>متبقي: {remDays > 0 ? remDays + ' يوم' : 'منتهي'}</span>}
               </div>
@@ -810,8 +851,9 @@ export default function Dashboard() {
             ...(isCenter ? [{ id: 'doctors' as Tab, label: 'الأطباء والتخصصات', icon: Stethoscope }] : []),
             ...(isCenter ? [{ id: 'departments' as Tab, label: 'الأقسام الطبية', icon: Hospital }] : []),
             ...(shouldShowAppearanceTab(entityType) ? [{ id: 'visibility' as Tab, label: 'الظهور والإعلان', icon: Eye }] : []),
-            { id: 'calendar' as Tab, label: 'تقويم Google', icon: CalendarDays },
-            { id: 'reports' as Tab, label: 'التقارير اليومية', icon: FileText },
+            // تقويم Google والتقارير اليومية فقط لطبيب القسم (department)، وليس لمدير المركز (center)
+            ...(!isCenter ? [{ id: 'calendar' as Tab, label: 'تقويم Google', icon: CalendarDays }] : []),
+            ...(!isCenter ? [{ id: 'reports' as Tab, label: 'التقارير اليومية', icon: FileText }] : []),
             { id: 'share' as Tab, label: 'مشاركة الرابط', icon: ExternalLink },
           ].map(t => (
             <Button
@@ -1023,6 +1065,15 @@ export default function Dashboard() {
                         <p className="text-xs text-gray-500"><CalendarDays className="w-3 h-3 inline ml-1" />{doc.startTime} - {doc.endTime} | كشف {doc.consultationDuration} دقيقة</p>
                         {doc.daysOff.length > 0 && <p className="text-xs text-amber-600">عطلة: {doc.daysOff.join('، ')}</p>}
                         {doc.bio && <p className="text-xs text-gray-400 mt-1 line-clamp-2">{doc.bio}</p>}
+                        {/* Doctor calendar & report quick actions */}
+                        <div className="flex gap-2 mt-2">
+                          <Button size="sm" variant="outline" className="text-blue-600 text-xs h-7 px-2" onClick={() => openDoctorCalendar(doc.id)}>
+                            <CalendarDays className="w-3 h-3 ml-1" /> تقويم Google
+                          </Button>
+                          <Button size="sm" variant="outline" className="text-green-600 text-xs h-7 px-2" onClick={() => openDoctorReport(doc.id)}>
+                            <FileText className="w-3 h-3 ml-1" /> التقرير اليومي
+                          </Button>
+                        </div>
                       </div>
                       <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 shrink-0" onClick={() => removeDoctor(doc.id)}>
                         <Trash2 className="w-4 h-4" />
@@ -1795,6 +1846,158 @@ export default function Dashboard() {
             </div>
           </Card>
         )}
+      {/* ===== PER-DOCTOR CALENDAR MODAL ===== */}
+      {showDoctorCalendarModal && selectedDoctorId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <Card className="w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <CalendarDays className="w-5 h-5 text-blue-600" />
+              تقويم Google - {cEntity?.doctors.find(d => d.id === selectedDoctorId)?.name}
+            </h3>
+            <p className="text-sm text-gray-500 mb-4">
+              اربط تقويم Google الخاص بهذا الطبيب ليتم تزامن جدول المواعيد تلقائياً.
+            </p>
+
+            {/* Enable/Disable */}
+            <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg mb-4">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${doctorCalendarForm.enabled ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-400'}`}>
+                  <CalendarDays className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">تفعيل التزامن</p>
+                  <p className="text-xs text-gray-500">تسجيل الحجوزات تلقائياً في تقويم Google</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  const newVal = !doctorCalendarForm.enabled;
+                  setDoctorCalendarForm({ ...doctorCalendarForm, enabled: newVal });
+                  localStorage.setItem(getDoctorCalendarKey(selectedDoctorId), JSON.stringify({ ...doctorCalendarForm, enabled: newVal }));
+                  showMsg(newVal ? 'تم تفعيل التزامن' : 'تم تعطيل التزامن');
+                }}
+                className={`relative w-14 h-8 rounded-full transition-all ${doctorCalendarForm.enabled ? 'bg-green-500' : 'bg-gray-300'}`}
+              >
+                <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-all ${doctorCalendarForm.enabled ? 'left-7' : 'left-1'}`} />
+              </button>
+            </div>
+
+            {doctorCalendarForm.enabled && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>بريد Gmail</Label>
+                  <Input type="email" value={doctorCalendarForm.googleEmail} onChange={e => setDoctorCalendarForm({ ...doctorCalendarForm, googleEmail: e.target.value })} placeholder="doctor@gmail.com" dir="ltr" />
+                  <p className="text-xs text-gray-400">أدخل بريد Gmail المرتبط بتقويم Google</p>
+                </div>
+                <Button
+                  onClick={() => {
+                    const settings: DoctorCalendarSettings = {
+                      enabled: doctorCalendarForm.enabled,
+                      googleAccessToken: '',
+                      googleRefreshToken: '',
+                      googleEmail: doctorCalendarForm.googleEmail,
+                      calendarId: doctorCalendarForm.calendarId,
+                    };
+                    localStorage.setItem(getDoctorCalendarKey(selectedDoctorId), JSON.stringify(settings));
+                    showMsg('تم حفظ إعدادات التقويم');
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 gap-2"
+                >
+                  <Save className="w-4 h-4" /> حفظ الإعدادات
+                </Button>
+              </div>
+            )}
+            <Button variant="ghost" className="w-full mt-3" onClick={() => setShowDoctorCalendarModal(false)}>إغلاق</Button>
+          </Card>
+        </div>
+      )}
+
+      {/* ===== PER-DOCTOR REPORT MODAL ===== */}
+      {showDoctorReportModal && selectedDoctorId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <Card className="w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <FileText className="w-5 h-5 text-green-600" />
+              التقرير اليومي - {cEntity?.doctors.find(d => d.id === selectedDoctorId)?.name}
+            </h3>
+            <p className="text-sm text-gray-500 mb-4">
+              اضبط وقت إرسال تقرير حجوزات اليوم لهذا الطبيب.
+            </p>
+
+            {/* Enable/Disable */}
+            <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg mb-4">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${doctorReportForm.enabled ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-400'}`}>
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">تفعيل التقرير اليومي</p>
+                  <p className="text-xs text-gray-500">استلام جدول حجوزات اليوم تلقائياً</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  const newVal = !doctorReportForm.enabled;
+                  setDoctorReportForm({ ...doctorReportForm, enabled: newVal });
+                  localStorage.setItem(getDoctorReportKey(selectedDoctorId), JSON.stringify({ ...doctorReportForm, enabled: newVal }));
+                  showMsg(newVal ? 'تم تفعيل التقرير اليومي' : 'تم تعطيل التقرير');
+                }}
+                className={`relative w-14 h-8 rounded-full transition-all ${doctorReportForm.enabled ? 'bg-green-500' : 'bg-gray-300'}`}
+              >
+                <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-all ${doctorReportForm.enabled ? 'left-7' : 'left-1'}`} />
+              </button>
+            </div>
+
+            {doctorReportForm.enabled && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>وقت إرسال التقرير</Label>
+                    <Input type="time" value={doctorReportForm.reportTime} onChange={e => setDoctorReportForm({ ...doctorReportForm, reportTime: e.target.value })} />
+                    <p className="text-xs text-gray-400">قبل بدء الدوام</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>بريد الطبيب</Label>
+                    <Input type="email" value={doctorReportForm.doctorEmail} onChange={e => setDoctorReportForm({ ...doctorReportForm, doctorEmail: e.target.value })} placeholder="doctor@example.com" dir="ltr" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>رقم واتساب</Label>
+                    <Input value={doctorReportForm.whatsappNumber} onChange={e => setDoctorReportForm({ ...doctorReportForm, whatsappNumber: e.target.value })} placeholder="07xxxxxxxx" dir="ltr" />
+                  </div>
+                </div>
+                <div className="flex gap-4 text-sm">
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={doctorReportForm.sendToEmail} onChange={e => setDoctorReportForm({ ...doctorReportForm, sendToEmail: e.target.checked })} />
+                    <span>إرسال بالبريد</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={doctorReportForm.sendToWhatsApp} onChange={e => setDoctorReportForm({ ...doctorReportForm, sendToWhatsApp: e.target.checked })} />
+                    <span>إرسال بواتساب</span>
+                  </label>
+                </div>
+                <Button
+                  onClick={() => {
+                    const settings: DailyReportSettings = {
+                      enabled: doctorReportForm.enabled,
+                      reportTime: doctorReportForm.reportTime,
+                      sendToEmail: doctorReportForm.sendToEmail,
+                      sendToWhatsApp: doctorReportForm.sendToWhatsApp,
+                      whatsappNumber: doctorReportForm.whatsappNumber,
+                      doctorEmail: doctorReportForm.doctorEmail,
+                    };
+                    localStorage.setItem(getDoctorReportKey(selectedDoctorId), JSON.stringify(settings));
+                    showMsg('تم حفظ إعدادات التقرير');
+                  }}
+                  className="bg-green-600 hover:bg-green-700 gap-2"
+                >
+                  <Save className="w-4 h-4" /> حفظ الإعدادات
+                </Button>
+              </div>
+            )}
+            <Button variant="ghost" className="w-full mt-3" onClick={() => setShowDoctorReportModal(false)}>إغلاق</Button>
+          </Card>
+        </div>
+      )}
       </div>
     </div>
   );
