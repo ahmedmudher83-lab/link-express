@@ -854,7 +854,8 @@ export default function Dashboard() {
             // تقويم Google والتقارير اليومية فقط لطبيب القسم (department)، وليس لمدير المركز (center)
             ...(!isCenter ? [{ id: 'calendar' as Tab, label: 'تقويم Google', icon: CalendarDays }] : []),
             ...(!isCenter ? [{ id: 'reports' as Tab, label: 'التقارير اليومية', icon: FileText }] : []),
-            { id: 'share' as Tab, label: 'مشاركة الرابط', icon: ExternalLink },
+            // مشاركة الرابط فقط لمدير المركز (center) - لا يوجد رابط مستقل للقسم
+            ...(isCenter ? [{ id: 'share' as Tab, label: 'مشاركة الرابط', icon: ExternalLink }] : []),
           ].map(t => (
             <Button
               key={t.id}
