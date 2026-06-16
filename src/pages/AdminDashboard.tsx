@@ -79,7 +79,7 @@ export default function AdminDashboard() {
 
   // Department form
   const [dForm, setDForm] = useState({
-    name: '', description: '', icon: 'Stethoscope', doctorEmail: '', centerId: '',
+    name: '', description: '', icon: 'Stethoscope', doctorName: '', doctorEmail: '', doctorPhone: '', specialty: '', doctorPassword: '', centerId: '',
     activationType: 'paid' as ActivationType,
     subscriptionPrice: pricing.platform.deptMonthlyPrice,
     freeTrialDays: pricing.trial?.trialDays || 10,
@@ -229,20 +229,24 @@ export default function AdminDashboard() {
     if (!aForm.password || aForm.password.length < 6) { showMsg('كلمة المرور يجب أن تكون 6 أحرف على الأقل'); return; }
     if (aForm.password !== aForm.confirmPassword) { showMsg('كلمة المرور وتأكيدها غير متطابقين'); return; }
 
-    // Use Gmail as username
-    const username = aForm.email.toLowerCase();
+    // Validate doctor email and password
+    if (!dForm.doctorEmail || !isGmail(dForm.doctorEmail)) { showMsg('أدخل بريد Gmail صحيح للطبيب'); return; }
+    if (!dForm.doctorPassword || dForm.doctorPassword.length < 6) { showMsg('كلمة مرور الطبيب يجب أن تكون 6 أحرف على الأقل'); return; }
+
+    // Use doctor email as username
+    const username = dForm.doctorEmail.toLowerCase();
 
     // Use global trial settings
     const trialDays = pricing.trial?.enabled ? (pricing.trial?.trialDays || 10) : 0;
 
     // Check if there's a soft-deleted account with this email
-    const deletedAccount = findDeletedAccountByEmail(aForm.email);
+    const deletedAccount = findDeletedAccountByEmail(dForm.doctorEmail);
     if (deletedAccount) {
       const allDepts = JSON.parse(localStorage.getItem('linex_departments') || '[]');
       const deletedEntity = allDepts.find((d: Department) => d.adminId === deletedAccount.id && d.deleted);
       if (deletedEntity) {
         setRestoreDialog({
-          show: true, email: aForm.email, adminId: deletedAccount.id,
+          show: true, email: dForm.doctorEmail, adminId: deletedAccount.id,
           entityName: deletedEntity.name, entityType: 'department', entityId: deletedEntity.id,
           pendingAction: 'dept'
         });
@@ -256,7 +260,7 @@ export default function AdminDashboard() {
 
     // Create department FIRST (references admin)
     const dept: Department = {
-      id: did, name: dForm.name, description: dForm.description, icon: dForm.icon, doctorName: '', doctorEmail: dForm.doctorEmail, doctorPhone: '', logo: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', consultationDuration: 15, centerId: dForm.centerId || null, adminId: aid,
+      id: did, name: dForm.name, description: dForm.description, icon: dForm.icon, doctorName: dForm.doctorName || dForm.name, doctorEmail: dForm.doctorEmail, doctorPhone: dForm.doctorPhone || '', logo: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', consultationDuration: 15, centerId: dForm.centerId || null, adminId: aid,
       activationType: 'paid',
       subscriptionPrice: dForm.subscriptionPrice,
       freeTrialDays: trialDays,
@@ -272,17 +276,16 @@ export default function AdminDashboard() {
     };
     addDepartment(dept);
 
-    // Then create admin WITH departmentId (two-way link)
-    const result = addAdmin({ id: aid, fullName: aForm.fullName, username, password: aForm.password, role: 'department', phone: '', email: aForm.email, isActive: true, departmentId: did, createdAt: new Date().toISOString() });
+    // Create admin account for the doctor automatically
+    const result = addAdmin({ id: aid, fullName: dForm.doctorName || dForm.name, username, password: dForm.doctorPassword, role: 'department', phone: dForm.doctorPhone || '', email: dForm.doctorEmail, isActive: true, departmentId: did, createdAt: new Date().toISOString() });
     if (result) { showMsg(result); return; }
 
     const parent = dept.centerId ? centers.find(c => c.id === dept.centerId)?.name : 'مستقل';
     addLog({ id: 'log-' + Date.now(), action: 'create_department', adminName: auth.admin?.fullName || '', targetName: dept.name, timestamp: new Date().toISOString(), details: `إنشاء عيادة "${dept.name}" (${parent}) - اشتراك مدفوع` });
     setShowDeptModal(false);
-    setDForm({ name: '', description: '', icon: 'Stethoscope', doctorEmail: '', centerId: '', activationType: 'paid', subscriptionPrice: pricing.platform.deptMonthlyPrice, freeTrialDays: pricing.trial?.trialDays || 10 });
-    setAForm({ fullName: '', password: '', confirmPassword: '', email: '' });
+    setDForm({ name: '', description: '', icon: 'Stethoscope', doctorName: '', doctorEmail: '', doctorPhone: '', specialty: '', doctorPassword: '', centerId: '', activationType: 'paid', subscriptionPrice: pricing.platform.deptMonthlyPrice, freeTrialDays: pricing.trial?.trialDays || 10 });
     setOtpSent(false); setOtpVerified(false); setOtpCode(''); setOtpCooldown(0);
-    showMsg('تم إنشاء القسم بنجاح');
+    showMsg(`تم إنشاء القسم "${dept.name}" وحساب الطبيب بنجاح. يمكن للطبيب تسجيل الدخول بإيميله وكلمة المرور.`);
   };
 
   const handleRenew = () => {
@@ -1272,6 +1275,7 @@ export default function AdminDashboard() {
                 <div className="space-y-1 md:col-span-2"><Label className="text-xs">اسم القسم / التخصص <span className="text-red-500">*</span></Label><Input value={dForm.name} onChange={e => setDForm({ ...dForm, name: e.target.value })} placeholder="مثال: قسم العظام" /></div>
                 <div className="space-y-1 md:col-span-2"><Label className="text-xs">الوصف</Label><Input value={dForm.description} onChange={e => setDForm({ ...dForm, description: e.target.value })} placeholder="وصف مختصر" /></div>
                 <div className="space-y-1 md:col-span-2"><Label className="text-xs">إيميل الطبيب المسؤول</Label><Input value={dForm.doctorEmail} onChange={e => setDForm({ ...dForm, doctorEmail: e.target.value })} placeholder="doctor@email.com" dir="ltr" /></div>
+                <div className="space-y-1"><Label className="text-xs">كلمة مرور الطبيب <span className="text-red-500">*</span></Label><Input type="password" value={dForm.doctorPassword} onChange={e => setDForm({ ...dForm, doctorPassword: e.target.value })} placeholder="6 أحرف على الأقل" dir="ltr" /></div>
               </div>
               <Separator />
               <h4 className="font-semibold text-sm bg-gray-50 p-2 rounded">مدير القسم</h4>
@@ -1424,12 +1428,12 @@ export default function AdminDashboard() {
                       showMsg('تم إنشاء المركز الطبي بنجاح (حساب جديد)');
                     }
                   } else {
-                    // Retry department creation
+                    // Retry department creation with doctor account
                     const did = 'dept-' + Date.now();
                     const aid = 'admin-' + Date.now();
                     const trialDays = pricing.trial?.enabled ? (pricing.trial?.trialDays || 10) : 0;
                     const dept: Department = {
-                      id: did, name: dForm.name, description: dForm.description, icon: dForm.icon, doctorName: '', doctorEmail: dForm.doctorEmail, doctorPhone: '', logo: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', consultationDuration: 15, centerId: dForm.centerId || null, adminId: aid,
+                      id: did, name: dForm.name, description: dForm.description, icon: dForm.icon, doctorName: dForm.doctorName || dForm.name, doctorEmail: dForm.doctorEmail, doctorPhone: dForm.doctorPhone || '', logo: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', consultationDuration: 15, centerId: dForm.centerId || null, adminId: aid,
                       activationType: 'paid', subscriptionPrice: dForm.subscriptionPrice, freeTrialDays: trialDays,
                       createdAt: new Date().toISOString(),
                       expiresAt: new Date(Date.now() + (trialDays + 30) * 86400000).toISOString(),
@@ -1438,15 +1442,14 @@ export default function AdminDashboard() {
                       promoImages: [], promoText: ''
                     };
                     addDepartment(dept);
-                    const result = addAdmin({ id: aid, fullName: aForm.fullName, username: aForm.email.toLowerCase(), password: aForm.password, role: 'department', phone: '', email: aForm.email, isActive: true, departmentId: did, createdAt: new Date().toISOString() });
+                    const result = addAdmin({ id: aid, fullName: dForm.doctorName || dForm.name, username: dForm.doctorEmail.toLowerCase(), password: dForm.doctorPassword, role: 'department', phone: dForm.doctorPhone || '', email: dForm.doctorEmail, isActive: true, departmentId: did, createdAt: new Date().toISOString() });
                     if (!result) {
                       const parent = dept.centerId ? centers.find(c => c.id === dept.centerId)?.name : 'مستقل';
                       addLog({ id: 'log-' + Date.now(), action: 'create_department', adminName: auth.admin?.fullName || '', targetName: dept.name, timestamp: new Date().toISOString(), details: `إنشاء عيادة "${dept.name}" (${parent}) - اشتراك مدفوع (حساب جديد)` });
                       setShowDeptModal(false);
-                      setDForm({ name: '', description: '', icon: 'Stethoscope', doctorEmail: '', centerId: '', activationType: 'paid', subscriptionPrice: pricing.platform.deptMonthlyPrice, freeTrialDays: pricing.trial?.trialDays || 10 });
-                      setAForm({ fullName: '', password: '', confirmPassword: '', email: '' });
+                      setDForm({ name: '', description: '', icon: 'Stethoscope', doctorName: '', doctorEmail: '', doctorPhone: '', specialty: '', doctorPassword: '', centerId: '', activationType: 'paid', subscriptionPrice: pricing.platform.deptMonthlyPrice, freeTrialDays: pricing.trial?.trialDays || 10 });
                       setOtpSent(false); setOtpVerified(false); setOtpCode(''); setOtpCooldown(0);
-                      showMsg('تم إنشاء القسم بنجاح (حساب جديد)');
+                      showMsg('تم إنشاء القسم وحساب الطبيب بنجاح (حساب جديد)');
                     }
                   }
                 }}
