@@ -191,10 +191,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Helper: check if an admin's associated center/department still exists
     const isOrphaned = (a: Admin): boolean => {
       if (a.role === 'center' && a.centerId) {
-        return !getCenters(true).find(c => c.id === a.centerId);
+        return !getCenters().find(c => c.id === a.centerId);
       }
       if (a.role === 'department' && a.departmentId) {
-        return !getDepartments(true).find(d => d.id === a.departmentId);
+        return !getDepartments().find(d => d.id === a.departmentId);
       }
       return false;
     };
