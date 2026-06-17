@@ -16,10 +16,6 @@ export interface Admin {
   departmentId?: string;
   isActive: boolean;
   createdAt: string;
-  // Soft Delete Fields
-  deleted?: boolean;
-  deletedAt?: string;
-  deletedBy?: string;
 }
 
 // طبيب داخل المركز
@@ -77,10 +73,6 @@ export interface Center {
   customPlatformTrial?: number;    // فترة تجريبية مخصصة للمنصة
   customAppearancePrice?: number;  // سعر مخصص للظهور الإعلاني
   customAppearanceTrial?: number;  // فترة تجريبية مخصصة للظهور
-  // ===== Soft Delete Fields =====
-  deleted?: boolean;               // هل تم الحذف الناعم
-  deletedAt?: string;              // تاريخ الحذف الناعم
-  deletedBy?: string;              // معرف الأدمن الذي قام بالحذف
 }
 
 // قسم / تخصص = صفحة (أ)
@@ -128,10 +120,6 @@ export interface Department {
   customPlatformTrial?: number;
   customAppearancePrice?: number;
   customAppearanceTrial?: number;
-  // ===== Soft Delete Fields =====
-  deleted?: boolean;
-  deletedAt?: string;
-  deletedBy?: string;
 }
 
 // إعدادات رقم (1) - اشتراك المنصة

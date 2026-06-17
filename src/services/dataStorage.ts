@@ -261,9 +261,8 @@ export function clearAuth(): void {
 }
 
 // ======== CENTERS (localStorage + Firestore background) ========
-export function getCenters(includeDeleted = false): Center[] {
-  const centers = lsGet<Center[]>(KEYS.CENTERS, []);
-  return includeDeleted ? centers : centers.filter(c => !c.deleted);
+export function getCenters(): Center[] {
+  return lsGet<Center[]>(KEYS.CENTERS, []);
 }
 
 export function saveCenter(center: Center): void {
@@ -276,29 +275,6 @@ export function saveCenter(center: Center): void {
   fsSet('centers', center.id, center);
 }
 
-export async function softDeleteCenter(id: string, adminId?: string): Promise<void> {
-  const centers = lsGet<Center[]>(KEYS.CENTERS, []);
-  const idx = centers.findIndex(c => c.id === id);
-  if (idx >= 0) {
-    centers[idx] = { ...centers[idx], deleted: true, deletedAt: new Date().toISOString(), deletedBy: adminId || undefined };
-    lsSet(KEYS.CENTERS, centers);
-    broadcast(KEYS.CENTERS);
-    await fsSet('centers', id, centers[idx]);
-  }
-}
-
-export async function restoreCenter(id: string): Promise<void> {
-  const centers = lsGet<Center[]>(KEYS.CENTERS, []);
-  const idx = centers.findIndex(c => c.id === id);
-  if (idx >= 0) {
-    const { deleted, deletedAt, deletedBy, ...rest } = centers[idx];
-    centers[idx] = rest as Center;
-    lsSet(KEYS.CENTERS, centers);
-    broadcast(KEYS.CENTERS);
-    await fsSet('centers', id, centers[idx]);
-  }
-}
-
 export async function removeCenter(id: string): Promise<void> {
   await fsDel('centers', id);
   lsSet(KEYS.CENTERS, lsGet<Center[]>(KEYS.CENTERS, []).filter(c => c.id !== id));
@@ -306,9 +282,8 @@ export async function removeCenter(id: string): Promise<void> {
 }
 
 // ======== DEPARTMENTS (localStorage + Firestore background) ========
-export function getDepartments(includeDeleted = false): Department[] {
-  const depts = lsGet<Department[]>(KEYS.DEPARTMENTS, []);
-  return includeDeleted ? depts : depts.filter(d => !d.deleted);
+export function getDepartments(): Department[] {
+  return lsGet<Department[]>(KEYS.DEPARTMENTS, []);
 }
 
 export function saveDepartment(dept: Department): void {
@@ -319,29 +294,6 @@ export function saveDepartment(dept: Department): void {
   lsSet(KEYS.DEPARTMENTS, depts);
   broadcast(KEYS.DEPARTMENTS);
   fsSet('departments', dept.id, dept);
-}
-
-export async function softDeleteDepartment(id: string, adminId?: string): Promise<void> {
-  const depts = lsGet<Department[]>(KEYS.DEPARTMENTS, []);
-  const idx = depts.findIndex(d => d.id === id);
-  if (idx >= 0) {
-    depts[idx] = { ...depts[idx], deleted: true, deletedAt: new Date().toISOString(), deletedBy: adminId || undefined };
-    lsSet(KEYS.DEPARTMENTS, depts);
-    broadcast(KEYS.DEPARTMENTS);
-    await fsSet('departments', id, depts[idx]);
-  }
-}
-
-export async function restoreDepartment(id: string): Promise<void> {
-  const depts = lsGet<Department[]>(KEYS.DEPARTMENTS, []);
-  const idx = depts.findIndex(d => d.id === id);
-  if (idx >= 0) {
-    const { deleted, deletedAt, deletedBy, ...rest } = depts[idx];
-    depts[idx] = rest as Department;
-    lsSet(KEYS.DEPARTMENTS, depts);
-    broadcast(KEYS.DEPARTMENTS);
-    await fsSet('departments', id, depts[idx]);
-  }
 }
 
 export async function removeDepartment(id: string): Promise<void> {

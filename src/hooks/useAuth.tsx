@@ -36,10 +36,6 @@ interface AuthContextType {
   getAdminByCenterId: (centerId: string) => Admin | undefined;
   getAdminByDepartmentId: (deptId: string) => Admin | undefined;
   removeAdmin: (adminId: string) => Promise<void>;
-  softDeleteAdmin: (adminId: string, deletedBy?: string) => Promise<void>;
-  restoreAdmin: (adminId: string) => Promise<void>;
-  getDeletedAdmins: () => Admin[];
-  findDeletedAccountByEmail: (email: string) => Admin | null;
   // OTP Registration
   sendOTP: (identifier: string, method: 'gmail' | 'phone') => Promise<{ success: boolean; otpCode?: string; error?: string; cooldown?: number }>;
   verifyOTP: (identifier: string, code: string, method: 'gmail' | 'phone') => Promise<{ success: boolean; error?: string }>;
@@ -186,14 +182,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const getAllAdmins = useCallback((): Admin[] => admins, [admins]);
 
-  // Check if there's a soft-deleted account with this email
-  const findDeletedAccountByEmail = useCallback((email: string): Admin | null => {
-    if (!email) return null;
-    const all = getAdmins();
-    const found = all.find(a => a.email?.toLowerCase() === email.toLowerCase() && (a as any).deleted === true);
-    return found || null;
-  }, []);
-
   const addAdmin = useCallback((admin: Admin): string | null => {
     const all = getAdmins();
     // Find any existing account with same email or username
@@ -262,39 +250,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return admins.find(a => a.role === 'department' && a.departmentId === deptId);
   }, [admins]);
 
-  const softDeleteAdmin = useCallback(async (adminId: string, deletedBy?: string): Promise<void> => {
-    const stored = localStorage.getItem('linex_admins');
-    if (!stored) return;
-    const parsed = JSON.parse(stored) as Admin[];
-    const idx = parsed.findIndex(a => a.id === adminId);
-    if (idx >= 0) {
-      parsed[idx] = { ...parsed[idx], isActive: false, deleted: true, deletedAt: new Date().toISOString(), deletedBy: deletedBy || undefined };
-      localStorage.setItem('linex_admins', JSON.stringify(parsed));
-      setAdmins(parsed);
-      // Sync to Firestore
-      try { await setDoc(doc(db!, 'admins', adminId), parsed[idx]); } catch { /* silent fail */ }
-    }
-  }, []);
-
-  const restoreAdmin = useCallback(async (adminId: string): Promise<void> => {
-    const stored = localStorage.getItem('linex_admins');
-    if (!stored) return;
-    const parsed = JSON.parse(stored) as Admin[];
-    const idx = parsed.findIndex(a => a.id === adminId);
-    if (idx >= 0) {
-      const { deleted, deletedAt, deletedBy, ...rest } = parsed[idx] as any;
-      parsed[idx] = { ...rest, isActive: true };
-      localStorage.setItem('linex_admins', JSON.stringify(parsed));
-      setAdmins(parsed);
-      // Sync to Firestore
-      try { await setDoc(doc(db!, 'admins', adminId), parsed[idx]); } catch { /* silent fail */ }
-    }
-  }, []);
-
-  const getDeletedAdmins = useCallback((): Admin[] => {
-    return admins.filter(a => (a as any).deleted === true);
-  }, [admins]);
-
   const removeAdmin = useCallback(async (adminId: string): Promise<void> => {
     const stored = localStorage.getItem('linex_admins');
     if (!stored) return;
@@ -329,7 +284,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       auth, loading, login, logout,
-      getAllAdmins, addAdmin, updateAdmin, removeAdmin, softDeleteAdmin, restoreAdmin, getDeletedAdmins, findDeletedAccountByEmail,
+      getAllAdmins, addAdmin, updateAdmin, removeAdmin,
       getAdminsByRole, getAdminById,
       getAdminByCenterId, getAdminByDepartmentId,
       sendOTP: sendOTPHandler, verifyOTP: verifyOTPHandler,

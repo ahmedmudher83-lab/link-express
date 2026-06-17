@@ -3,8 +3,8 @@ import type { ReactNode } from 'react';
 import type { Center, Department, ActivityLog, PricingDefaults, PaymentMethodsSettings, PaymentMethodConfig, AdminAnnouncement, AppearanceVisibilitySettings, FeaturedEntity } from '@/types/linex';
 import { computeStatus } from '@/types/linex';
 import {
-  getCenters, saveCenter, removeCenter, softDeleteCenter, restoreCenter,
-  getDepartments, saveDepartment, removeDepartment, softDeleteDepartment, restoreDepartment,
+  getCenters, saveCenter, removeCenter,
+  getDepartments, saveDepartment, removeDepartment,
   getPricing, savePricing,
   getVisibility, saveVisibility,
   getFeatured, saveFeatured, removeFeatured,
@@ -43,12 +43,8 @@ interface LinexDataContext {
   // Actions
   addCenter: (c: Center) => void;
   closeCenter: (id: string) => void;
-  softDeleteCenter: (id: string, adminId?: string) => Promise<void>;
-  restoreCenter: (id: string) => Promise<void>;
   addDepartment: (d: Department) => void;
   closeDepartment: (id: string) => void;
-  softDeleteDepartment: (id: string, adminId?: string) => Promise<void>;
-  restoreDepartment: (id: string) => Promise<void>;
   updatePricing: (p: PricingDefaults) => void;
   renewCenter: (id: string, months: number) => void;
   renewDepartment: (id: string, months: number) => void;
@@ -59,9 +55,6 @@ interface LinexDataContext {
   getIndependentDepartments: () => Department[];
   getDepartmentById: (id: string) => Department | undefined;
   getActiveDepartments: () => Department[];
-  // Deleted items
-  deletedCenters: Center[];
-  deletedDepartments: Department[];
   // Logs
   addLog: (log: ActivityLog) => void;
   // Payment
@@ -97,8 +90,6 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
   const [announcements, setAnnouncements] = useState<AdminAnnouncement[]>([]);
   const [appearanceVisibility, setAppearanceVisibility] = useState<AppearanceVisibilitySettings>(getVisibility());
   const [featuredEntities, setFeaturedEntities] = useState<FeaturedEntity[]>(getFeatured());
-  const [deletedCenters, setDeletedCenters] = useState<Center[]>([]);
-  const [deletedDepartments, setDeletedDepartments] = useState<Department[]>([]);
 
   // Load everything from localStorage on mount + sync from Firestore
   useEffect(() => {
@@ -107,9 +98,7 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
       seedDefaults();
       setCenters(getCenters());
       setDepartments(getDepartments());
-      setDeletedCenters(getCenters(true).filter(c => c.deleted));
-      setDeletedDepartments(getDepartments(true).filter(d => d.deleted));
-      setPricing(getPricing());
+          setPricing(getPricing());
       setPaymentMethods(getPayments());
       setAnnouncements(getAnnouncements());
       setAppearanceVisibility(getVisibility());
@@ -170,29 +159,6 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
     setDepartments(getDepartments());
   }, []);
 
-  // ======== Soft Delete Center ========
-  const softDeleteCenterFn = useCallback(async (id: string, adminId?: string) => {
-    await softDeleteCenter(id, adminId);
-    // Also soft delete all related departments
-    const relatedDepts = getDepartments(true).filter(d => d.centerId === id);
-    for (const d of relatedDepts) {
-      await softDeleteDepartment(d.id, adminId);
-    }
-    setCenters(getCenters());
-    setDepartments(getDepartments());
-    setDeletedCenters(getCenters(true).filter(c => c.deleted));
-    setDeletedDepartments(getDepartments(true).filter(d => d.deleted));
-  }, []);
-
-  // ======== Restore Center ========
-  const restoreCenterFn = useCallback(async (id: string) => {
-    await restoreCenter(id);
-    setCenters(getCenters());
-    setDepartments(getDepartments());
-    setDeletedCenters(getCenters(true).filter(c => c.deleted));
-    setDeletedDepartments(getDepartments(true).filter(d => d.deleted));
-  }, []);
-
   // ======== Department Operations ========
   const addDepartment = useCallback((d: Department) => {
     const exp = computeExpiry(d.createdAt, d.freeTrialDays);
@@ -204,24 +170,6 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
   const closeDepartment = useCallback((id: string) => {
     removeDepartment(id);
     setDepartments(getDepartments());
-  }, []);
-
-  // ======== Soft Delete Department ========
-  const softDeleteDepartmentFn = useCallback(async (id: string, adminId?: string) => {
-    await softDeleteDepartment(id, adminId);
-    setCenters(getCenters());
-    setDepartments(getDepartments());
-    setDeletedCenters(getCenters(true).filter(c => c.deleted));
-    setDeletedDepartments(getDepartments(true).filter(d => d.deleted));
-  }, []);
-
-  // ======== Restore Department ========
-  const restoreDepartmentFn = useCallback(async (id: string) => {
-    await restoreDepartment(id);
-    setCenters(getCenters());
-    setDepartments(getDepartments());
-    setDeletedCenters(getCenters(true).filter(c => c.deleted));
-    setDeletedDepartments(getDepartments(true).filter(d => d.deleted));
   }, []);
 
   // ======== Pricing - NOW ACTUALLY SAVES ========
@@ -349,8 +297,8 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
 
   const value = {
     loading, centers, departments, logs, pricing, paymentMethods, announcements,
-    addCenter, closeCenter, softDeleteCenter: softDeleteCenterFn, restoreCenter: restoreCenterFn,
-    addDepartment, closeDepartment, softDeleteDepartment: softDeleteDepartmentFn, restoreDepartment: restoreDepartmentFn,
+    addCenter, closeCenter,
+    addDepartment, closeDepartment,
     updatePricing, renewCenter, renewDepartment,
     getCenterById, getActiveCenters, getDepartmentsByCenter,
     getIndependentDepartments, getDepartmentById, getActiveDepartments,
@@ -359,8 +307,7 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
     appearanceVisibility, updateAppearanceVisibility, shouldShowAppearanceTab,
     featuredEntities, addFeaturedEntity, removeFeaturedEntity, getActiveFeatured,
     refreshStatuses,
-    deletedCenters, deletedDepartments,
-  };
+      };
 
   return (
     <LinexDataCtx.Provider value={value}>

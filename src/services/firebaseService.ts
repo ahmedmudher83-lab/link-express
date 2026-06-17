@@ -81,21 +81,14 @@ export async function deleteAdmin(id: string): Promise<void> {
   lsSet('linex_admins', admins);
 }
 
-// ======== Soft Delete Helpers ========
-const SOFT_DELETE_FIELD = 'deleted';
-
 // ======== Center Operations ========
 
-export async function getAllCenters(includeDeleted = false): Promise<Center[]> {
+export async function getAllCenters(): Promise<Center[]> {
   if (isConfigured && db) {
-    const q = includeDeleted
-      ? query(collection(db, COLLECTIONS.CENTERS), orderBy('createdAt', 'desc'))
-      : query(collection(db, COLLECTIONS.CENTERS), where(SOFT_DELETE_FIELD, '!=', true), orderBy('createdAt', 'desc'));
-    const snap = await getDocs(q);
+    const snap = await getDocs(query(collection(db, COLLECTIONS.CENTERS), orderBy('createdAt', 'desc')));
     return snap.docs.map(d => ({ ...d.data(), id: d.id } as Center));
   }
-  const centers = lsGet<Center[]>('linex_centers', []);
-  return includeDeleted ? centers : centers.filter(c => !c.deleted);
+  return lsGet<Center[]>('linex_centers', []);
 }
 
 export async function getCenterById(id: string): Promise<Center | null> {
@@ -119,42 +112,23 @@ export async function saveCenter(center: Center): Promise<void> {
   lsSet('linex_centers', centers);
 }
 
-export async function softDeleteCenter(id: string, adminId?: string): Promise<void> {
-  const center = await getCenterById(id);
-  if (!center) return;
-  const updated = { ...center, deleted: true, deletedAt: new Date().toISOString(), deletedBy: adminId || null };
-  await saveCenter(updated);
-}
-
-export async function restoreCenter(id: string): Promise<void> {
-  const center = await getCenterById(id);
-  if (!center) return;
-  const { deleted, deletedAt, deletedBy, ...rest } = center as Center & { deleted?: boolean; deletedAt?: string; deletedBy?: string | null };
-  await saveCenter(rest as Center);
-}
-
-// Hard delete - only for permanently removing soft-deleted items
 export async function deleteCenter(id: string): Promise<void> {
   if (isConfigured && db) {
     await deleteDoc(doc(db, COLLECTIONS.CENTERS, id));
     return;
   }
-  const centers = (await getAllCenters(true)).filter(c => c.id !== id);
+  const centers = (await getAllCenters()).filter(c => c.id !== id);
   lsSet('linex_centers', centers);
 }
 
 // ======== Department Operations ========
 
-export async function getAllDepartments(includeDeleted = false): Promise<Department[]> {
+export async function getAllDepartments(): Promise<Department[]> {
   if (isConfigured && db) {
-    const q = includeDeleted
-      ? query(collection(db, COLLECTIONS.DEPARTMENTS), orderBy('createdAt', 'desc'))
-      : query(collection(db, COLLECTIONS.DEPARTMENTS), where(SOFT_DELETE_FIELD, '!=', true), orderBy('createdAt', 'desc'));
-    const snap = await getDocs(q);
+    const snap = await getDocs(query(collection(db, COLLECTIONS.DEPARTMENTS), orderBy('createdAt', 'desc')));
     return snap.docs.map(d => ({ ...d.data(), id: d.id } as Department));
   }
-  const depts = lsGet<Department[]>('linex_depts', []);
-  return includeDeleted ? depts : depts.filter(d => !d.deleted);
+  return lsGet<Department[]>('linex_depts', []);
 }
 
 export async function getDepartmentById(id: string): Promise<Department | null> {
@@ -188,27 +162,12 @@ export async function saveDepartment(dept: Department): Promise<void> {
   lsSet('linex_depts', depts);
 }
 
-export async function softDeleteDepartment(id: string, adminId?: string): Promise<void> {
-  const dept = await getDepartmentById(id);
-  if (!dept) return;
-  const updated = { ...dept, deleted: true, deletedAt: new Date().toISOString(), deletedBy: adminId || null };
-  await saveDepartment(updated);
-}
-
-export async function restoreDepartment(id: string): Promise<void> {
-  const dept = await getDepartmentById(id);
-  if (!dept) return;
-  const { deleted, deletedAt, deletedBy, ...rest } = dept as Department & { deleted?: boolean; deletedAt?: string; deletedBy?: string | null };
-  await saveDepartment(rest as Department);
-}
-
-// Hard delete - only for permanently removing soft-deleted items
 export async function deleteDepartment(id: string): Promise<void> {
   if (isConfigured && db) {
     await deleteDoc(doc(db, COLLECTIONS.DEPARTMENTS, id));
     return;
   }
-  const depts = (await getAllDepartments(true)).filter(d => d.id !== id);
+  const depts = (await getAllDepartments()).filter(d => d.id !== id);
   lsSet('linex_depts', depts);
 }
 

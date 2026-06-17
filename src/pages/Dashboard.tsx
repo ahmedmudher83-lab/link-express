@@ -36,7 +36,6 @@ export default function Dashboard() {
     centers, departments, getActiveAnnouncements,
     addDepartment, closeDepartment,
     appearanceVisibility, shouldShowAppearanceTab, pricing,
-    restoreCenter, restoreDepartment,
   } = useLinexData();
 
   // Get managed entity
@@ -155,18 +154,6 @@ export default function Dashboard() {
   // Get active announcements for this admin
   const activeAnns = auth.admin ? getActiveAnnouncements(auth.admin.id) : [];
 
-  // Check if entity was soft-deleted
-  const [isDeletedEntity, setIsDeletedEntity] = useState(false);
-  const [deletedEntityName, setDeletedEntityName] = useState('');
-
-  // Helper: get all centers including deleted (from localStorage)
-  const getAllCentersIncludingDeleted = (): Center[] => {
-    try { const s = localStorage.getItem('linex_centers'); return s ? JSON.parse(s) : []; } catch { return []; }
-  };
-  const getAllDeptsIncludingDeleted = (): Department[] => {
-    try { const s = localStorage.getItem('linex_departments'); return s ? JSON.parse(s) : []; } catch { return []; }
-  };
-
   // Load entity on mount
   useEffect(() => {
     console.log('[DEBUG Dashboard] auth:', auth.isAuthenticated, auth.admin ? { id: auth.admin.id, role: auth.admin.role, centerId: auth.admin.centerId, deptId: auth.admin.departmentId } : 'no admin');
@@ -187,31 +174,8 @@ export default function Dashboard() {
           console.log('[DEBUG Dashboard] Updated admin centerId to:', c.id);
         }
       }
-      // Fallback 2: search ALL centers (including deleted) by adminId
-      if (!c && auth.admin) {
-        console.log('[DEBUG Dashboard] Fallback 2: searching ALL centers including deleted');
-        const allCenters = getAllCentersIncludingDeleted();
-        const deletedCenter = allCenters.find(x => x.adminId === auth.admin!.id && x.deleted);
-        if (deletedCenter) {
-          console.log('[DEBUG Dashboard] Found DELETED center:', deletedCenter.name);
-          setIsDeletedEntity(true);
-          setDeletedEntityName(deletedCenter.name);
-          setEntity(null);
-          return; // Stop here, show deleted message
-        }
-        // Also try by centerId in all centers
-        const deletedById = allCenters.find(x => x.id === auth.admin!.centerId && x.deleted);
-        if (deletedById) {
-          console.log('[DEBUG Dashboard] Found DELETED center by centerId:', deletedById.name);
-          setIsDeletedEntity(true);
-          setDeletedEntityName(deletedById.name);
-          setEntity(null);
-          return;
-        }
-      }
       console.log('[DEBUG Dashboard] center found:', c ? 'YES' : 'NO');
       if (c) {
-        setIsDeletedEntity(false);
         setEntity(c);
         setEntityType('center');
         setInfoForm({ name: c.name, address: c.address, phone: c.phone, email: c.email });
@@ -233,26 +197,7 @@ export default function Dashboard() {
           updateAdmin(updatedAdmin);
         }
       }
-      // Fallback 2: search ALL departments (including deleted) by adminId
-      if (!d && auth.admin) {
-        const allDepts = getAllDeptsIncludingDeleted();
-        const deletedDept = allDepts.find(x => x.adminId === auth.admin!.id && x.deleted);
-        if (deletedDept) {
-          setIsDeletedEntity(true);
-          setDeletedEntityName(deletedDept.name);
-          setEntity(null);
-          return;
-        }
-        const deletedById = allDepts.find(x => x.id === auth.admin!.departmentId && x.deleted);
-        if (deletedById) {
-          setIsDeletedEntity(true);
-          setDeletedEntityName(deletedById.name);
-          setEntity(null);
-          return;
-        }
-      }
       if (d) {
-        setIsDeletedEntity(false);
         setEntity(d);
         setEntityType('department');
         setInfoForm({ name: d.name, address: '', phone: '', email: d.doctorEmail });
@@ -334,61 +279,10 @@ export default function Dashboard() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center" dir="rtl">
         <Card className="p-8 text-center max-w-md">
-          {isDeletedEntity ? (
-            <>
-              <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-              <h2 className="text-xl font-bold text-gray-900 mb-2">الحساب محذوف ناعماً</h2>
-              <p className="text-gray-600 mb-2">
-                "{deletedEntityName}" تم حذفه ناعماً من قبل المدير العام
-              </p>
-              <p className="text-sm text-gray-500 mb-4">
-                يمكنك استعادة حسابك ومتابعة العمل، أو التواصل مع المدير العام لمزيد من المعلومات
-              </p>
-              <div className="flex gap-3 justify-center">
-                <Button
-                  className="bg-green-600 hover:bg-green-700 gap-2"
-                  onClick={async () => {
-                    // Find and restore the entity
-                    if (auth.admin?.role === 'center') {
-                      const allCenters = getAllCentersIncludingDeleted();
-                      const deletedC = allCenters.find(x => x.adminId === auth.admin!.id && x.deleted) || allCenters.find(x => x.id === auth.admin!.centerId && x.deleted);
-                      if (deletedC) {
-                        await restoreCenter(deletedC.id);
-                        // Also restore admin
-                        const updatedAdmin = { ...auth.admin, isActive: true, centerId: deletedC.id };
-                        updateAdmin(updatedAdmin);
-                        setIsDeletedEntity(false);
-                        showMsg('تم استعادة الحساب بنجاح! جاري إعادة التحميل...');
-                        setTimeout(() => window.location.reload(), 1500);
-                      }
-                    } else if (auth.admin?.role === 'department') {
-                      const allDepts = getAllDeptsIncludingDeleted();
-                      const deletedD = allDepts.find(x => x.adminId === auth.admin!.id && x.deleted) || allDepts.find(x => x.id === auth.admin!.departmentId && x.deleted);
-                      if (deletedD) {
-                        await restoreDepartment(deletedD.id);
-                        const updatedAdmin = { ...auth.admin, isActive: true, departmentId: deletedD.id };
-                        updateAdmin(updatedAdmin);
-                        setIsDeletedEntity(false);
-                        showMsg('تم استعادة الحساب بنجاح! جاري إعادة التحميل...');
-                        setTimeout(() => window.location.reload(), 1500);
-                      }
-                    }
-                  }}
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  استعادة الحساب
-                </Button>
-                <Button variant="outline" onClick={() => { logout(); navigate('/'); }}>خروج</Button>
-              </div>
-            </>
-          ) : (
-            <>
-              <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
-              <h2 className="text-xl font-bold text-gray-900 mb-2">لم يتم العثور على المركز أو العيادة</h2>
-              <p className="text-gray-500 mb-4">قد يكون الحساب غير مرتبط بأي مركز أو عيادة. يرجى التواصل مع المدير العام.</p>
-              <Button variant="outline" onClick={() => { logout(); navigate('/'); }}>خروج</Button>
-            </>
-          )}
+          <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-900 mb-2">لم يتم العثور على المركز أو العيادة</h2>
+          <p className="text-gray-500 mb-4">قد يكون الحساب غير مرتبط بأي مركز أو عيادة. يرجى التواصل مع المدير العام.</p>
+          <Button variant="outline" onClick={() => { logout(); navigate('/'); }}>خروج</Button>
         </Card>
       </div>
     );

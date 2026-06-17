@@ -21,7 +21,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 
-type Tab = 'overview' | 'centers' | 'departments' | 'pricing' | 'payments' | 'announcements' | 'logs' | 'appearance' | 'deleted';
+type Tab = 'overview' | 'centers' | 'departments' | 'pricing' | 'payments' | 'announcements' | 'logs' | 'appearance';
 
 // ======== Super Admin Protection ========
 const SUPER_ADMIN_EMAIL = 'admin@linex.com';
@@ -32,11 +32,11 @@ function isSuperAdminProtected(adminId: string, adminEmail?: string): boolean {
 }
 
 export default function AdminDashboard() {
-  const { auth, login, logout, addAdmin, getAdminById, updateAdmin, changePassword, sendOTP, verifyOTP, getAdminByCenterId, getAdminByDepartmentId, removeAdmin, findDeletedAccountByEmail, restoreAdmin } = useAuth();
+  const { auth, login, logout, addAdmin, getAdminById, updateAdmin, changePassword, sendOTP, verifyOTP, getAdminByCenterId, getAdminByDepartmentId, removeAdmin } = useAuth();
   const {
     centers, departments, logs, pricing,
-    addCenter, closeCenter, softDeleteCenter, restoreCenter,
-    addDepartment, closeDepartment, softDeleteDepartment, restoreDepartment,
+    addCenter, closeCenter,
+    addDepartment, closeDepartment,
     updatePricing, renewCenter, renewDepartment,
     getCenterById, getDepartmentsByCenter,
     getActiveCenters, getActiveDepartments, getIndependentDepartments,
@@ -44,8 +44,7 @@ export default function AdminDashboard() {
     paymentMethods, togglePaymentMethod, updatePaymentMethods,
     announcements, addAnnouncement, removeAnnouncement,
     appearanceVisibility, updateAppearanceVisibility,
-    featuredEntities, addFeaturedEntity, removeFeaturedEntity,
-    deletedCenters, deletedDepartments,
+    featuredEntities, addFeaturedEntity, removeFeaturedEntity, getActiveFeatured,
   } = useLinexData();
   const nav = useNavigate();
 
@@ -65,7 +64,6 @@ export default function AdminDashboard() {
   const showMsg = (t: string) => { setMsg(t); setTimeout(() => setMsg(''), 3000); };
 
   // Restore deleted account dialog
-  const [restoreDialog, setRestoreDialog] = useState<{ show: boolean; email: string; adminId: string; entityName: string; entityType: 'center' | 'department'; entityId: string; pendingAction: 'center' | 'dept' } | null>(null);
 
   // Center form
   const [cForm, setCForm] = useState({
@@ -168,22 +166,6 @@ export default function AdminDashboard() {
     // Use global trial settings
     const trialDays = pricing.trial?.enabled ? (pricing.trial?.trialDays || 10) : 0;
 
-    // Check if there's a soft-deleted account with this email
-    const deletedAccount = findDeletedAccountByEmail(aForm.email);
-    if (deletedAccount) {
-      // Find the associated deleted entity
-      const allCenters = JSON.parse(localStorage.getItem('linex_centers') || '[]');
-      const deletedEntity = allCenters.find((c: Center) => c.adminId === deletedAccount.id && c.deleted);
-      if (deletedEntity) {
-        setRestoreDialog({
-          show: true, email: aForm.email, adminId: deletedAccount.id,
-          entityName: deletedEntity.name, entityType: 'center', entityId: deletedEntity.id,
-          pendingAction: 'center'
-        });
-        return; // Stop creation, wait for user choice
-      }
-    }
-
     // Generate IDs
     const cid = 'center-' + Date.now();
     const aid = 'admin-' + Date.now();
@@ -238,21 +220,6 @@ export default function AdminDashboard() {
 
     // Use global trial settings
     const trialDays = pricing.trial?.enabled ? (pricing.trial?.trialDays || 10) : 0;
-
-    // Check if there's a soft-deleted account with this email
-    const deletedAccount = findDeletedAccountByEmail(dForm.doctorEmail);
-    if (deletedAccount) {
-      const allDepts = JSON.parse(localStorage.getItem('linex_departments') || '[]');
-      const deletedEntity = allDepts.find((d: Department) => d.adminId === deletedAccount.id && d.deleted);
-      if (deletedEntity) {
-        setRestoreDialog({
-          show: true, email: dForm.doctorEmail, adminId: deletedAccount.id,
-          entityName: deletedEntity.name, entityType: 'department', entityId: deletedEntity.id,
-          pendingAction: 'dept'
-        });
-        return; // Stop creation, wait for user choice
-      }
-    }
 
     // Generate IDs
     const did = 'dept-' + Date.now();
@@ -485,13 +452,11 @@ export default function AdminDashboard() {
 
         {/* Tabs */}
         <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-          {([{ id: 'overview', label: 'نظرة عامة', icon: Star }, { id: 'centers', label: 'المراكز الطبية (ب)', icon: Building2 }, { id: 'departments', label: 'العيادات (أ)', icon: Briefcase }, { id: 'pricing', label: 'أسعار الاشتراكات', icon: Coins }, { id: 'payments', label: 'طرق الدفع', icon: CreditCard }, { id: 'announcements', label: 'رسائل المدراء', icon: Mail }, { id: 'appearance', label: 'الظهور الإعلاني', icon: Eye }, { id: 'logs', label: 'سجل العمليات', icon: FileText }, { id: 'deleted', label: 'المحذوفات', icon: Trash2 }] as const).map(t => (
+          {([{ id: 'overview', label: 'نظرة عامة', icon: Star }, { id: 'centers', label: 'المراكز الطبية (ب)', icon: Building2 }, { id: 'departments', label: 'العيادات (أ)', icon: Briefcase }, { id: 'pricing', label: 'أسعار الاشتراكات', icon: Coins }, { id: 'payments', label: 'طرق الدفع', icon: CreditCard }, { id: 'announcements', label: 'رسائل المدراء', icon: Mail }, { id: 'appearance', label: 'الظهور الإعلاني', icon: Eye }, { id: 'logs', label: 'سجل العمليات', icon: FileText }, ] as const).map(t => (
             <Button key={t.id} variant={tab === t.id ? 'default' : 'outline'} onClick={() => setTab(t.id as Tab)} className={tab === t.id ? 'bg-teal-600 hover:bg-teal-700 gap-2' : 'gap-2'}>
               <t.icon className="w-4 h-4" />
               {t.label}
-              {t.id === 'deleted' && (deletedCenters.length + deletedDepartments.length > 0) && (
-                <Badge className="bg-red-500 text-white text-xs mr-1">{deletedCenters.length + deletedDepartments.length}</Badge>
-              )}
+              
             </Button>
           ))}
         </div>
@@ -559,7 +524,7 @@ export default function AdminDashboard() {
                     </div>
                     <div className="flex gap-2">
                       {c.status !== 'expired' && c.status !== 'closed' && <><Button size="sm" variant="outline" onClick={() => nav(`/center/${c.id}`)}><Eye className="w-4 h-4" /></Button><Button size="sm" className="bg-teal-600 hover:bg-teal-700" onClick={() => nav(`/center/${c.id}/booking`)}><ExternalLink className="w-4 h-4" /></Button></>}
-                      {c.status !== 'closed' && <><Button size="sm" variant="outline" className="text-amber-600" onClick={() => setRenewTarget({ type: 'center', id: c.id, name: c.name })}><RefreshCw className="w-4 h-4" /></Button><Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700" onClick={async () => { if (confirm(`حذف المركز "${c.name}" ناعماً؟ سيتم إخفاؤه من القائمة مع إمكانية الاستعادة لاحقاً.`)) { const admin = getAdminByCenterId(c.id); if (admin) await softDeleteAdmin(admin.id, auth.admin?.id); await softDeleteCenter(c.id, auth.admin?.id); showMsg('تم الحذف الناعم للمركز'); } }}><Trash2 className="w-4 h-4" /></Button></>}
+                      {c.status !== 'closed' && <><Button size="sm" variant="outline" className="text-amber-600" onClick={() => setRenewTarget({ type: 'center', id: c.id, name: c.name })}><RefreshCw className="w-4 h-4" /></Button><Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700" onClick={async () => { if (confirm(`حذف المركز "${c.name}" وكل أقسامه نهائياً؟`)) { const admin = getAdminByCenterId(c.id); if (admin) await removeAdmin(admin.id); const depts = getDepartmentsByCenter(c.id); depts.forEach(d => closeDepartment(d.id)); closeCenter(c.id); showMsg('تم الحذف النهائي'); } }}><Trash2 className="w-4 h-4" /></Button></>}
                     </div>
                   </div>
                   {/* Center's Internal Departments */}
@@ -611,7 +576,7 @@ export default function AdminDashboard() {
                       </div>
                       <div className="flex gap-2">
                         {d.status !== 'expired' && d.status !== 'closed' && <Button size="sm" className="bg-teal-600 hover:bg-teal-700" onClick={() => nav(`/dept/${d.id}/booking`)}><ExternalLink className="w-4 h-4" /></Button>}
-                        {d.status !== 'closed' && <><Button size="sm" variant="outline" className="text-amber-600" onClick={() => setRenewTarget({ type: 'dept', id: d.id, name: d.name })}><RefreshCw className="w-4 h-4" /></Button><Button size="sm" variant="ghost" className="text-red-500" onClick={async () => { if (confirm(`حذف العيادة "${d.name}" ناعماً؟ سيتم إخفاؤها من القائمة مع إمكانية الاستعادة لاحقاً.`)) { const admin = getAdminByDepartmentId(d.id); if (admin) await softDeleteAdmin(admin.id, auth.admin?.id); await softDeleteDepartment(d.id, auth.admin?.id); showMsg('تم الحذف الناعم للعيادة'); } }}><Trash2 className="w-4 h-4" /></Button></>}
+                        {d.status !== 'closed' && <><Button size="sm" variant="outline" className="text-amber-600" onClick={() => setRenewTarget({ type: 'dept', id: d.id, name: d.name })}><RefreshCw className="w-4 h-4" /></Button><Button size="sm" variant="ghost" className="text-red-500" onClick={async () => { if (confirm(`حذف العيادة "${d.name}" نهائياً؟`)) { const admin = getAdminByDepartmentId(d.id); if (admin) await removeAdmin(admin.id); closeDepartment(d.id); showMsg('تم الحذف النهائي'); } }}><Trash2 className="w-4 h-4" /></Button></>}
                       </div>
                     </div>
                   </Card>
@@ -1085,93 +1050,6 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* DELETED ITEMS TAB - Soft Delete Management */}
-        {tab === 'deleted' && (
-          <div>
-            <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2"><Trash2 className="w-5 h-5 text-red-500" />العناصر المحذوفة ناعماً</h3>
-            
-            {/* Deleted Centers */}
-            <Card className="p-5 mb-6 border-2 border-red-200">
-              <h4 className="font-bold text-gray-900 mb-3 flex items-center gap-2"><Building2 className="w-4 h-4 text-teal-600" />المراكز الطبية المحذوفة - {deletedCenters.length}</h4>
-              {deletedCenters.length === 0 ? (
-                <p className="text-center text-gray-400 text-sm py-4">لا توجد مراكز محذوفة</p>
-              ) : (
-                <div className="space-y-3">
-                  {deletedCenters.map(c => {
-                    const a = getAdminById(c.adminId);
-                    return (
-                      <Card key={c.id} className="p-4 bg-gray-50 border-red-200">
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <h4 className="text-lg font-bold text-gray-500 line-through">{c.name}</h4>
-                              <Badge className="bg-red-100 text-red-700">محذوف ناعماً</Badge>
-                              <Badge className="bg-gray-100 text-gray-500">{getStatusLabel(c.status)}</Badge>
-                            </div>
-                            <p className="text-sm text-gray-400 mt-1"><MapPin className="w-3 h-3 inline" /> {c.address}</p>
-                            <p className="text-xs text-gray-400 mt-1">
-                              <span>المدير: {a?.fullName || '-'}</span> | 
-                              <span>تاريخ الحذف: {c.deletedAt ? new Date(c.deletedAt).toLocaleDateString('ar-IQ') : 'غير معروف'}</span>
-                            </p>
-                          </div>
-                          <div className="flex gap-2">
-                            <Button size="sm" className="bg-green-600 hover:bg-green-700 gap-1" onClick={async () => { await restoreCenter(c.id); showMsg(`تم استعادة المركز "${c.name}"`); }}>
-                              <RefreshCw className="w-4 h-4" /> استعادة
-                            </Button>
-                            <Button size="sm" variant="outline" className="text-red-500" onClick={async () => { if (confirm(`حذف المركز "${c.name}" بشكل نهائي؟ لا يمكن التراجع عن هذا الإجراء!`)) { await closeCenter(c.id); showMsg('تم الحذف النهائي'); } }}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      </Card>
-                    );
-                  })}
-                </div>
-              )}
-            </Card>
-
-            {/* Deleted Departments */}
-            <Card className="p-5 border-2 border-red-200">
-              <h4 className="font-bold text-gray-900 mb-3 flex items-center gap-2"><Briefcase className="w-4 h-4 text-blue-600" />العيادات المحذوفة - {deletedDepartments.length}</h4>
-              {deletedDepartments.length === 0 ? (
-                <p className="text-center text-gray-400 text-sm py-4">لا توجد عيادات محذوفة</p>
-              ) : (
-                <div className="space-y-3">
-                  {deletedDepartments.map(d => {
-                    const a = getAdminById(d.adminId);
-                    return (
-                      <Card key={d.id} className="p-4 bg-gray-50 border-red-200">
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <h4 className="text-lg font-bold text-gray-500 line-through">{d.name}</h4>
-                              <Badge className="bg-red-100 text-red-700">محذوف ناعماً</Badge>
-                              <Badge className="bg-gray-100 text-gray-500">{getStatusLabel(d.status)}</Badge>
-                              {!d.centerId && <Badge variant="outline" className="bg-purple-50 text-purple-700">مستقل</Badge>}
-                            </div>
-                            <p className="text-sm text-gray-400 mt-1">{d.description}</p>
-                            <p className="text-xs text-gray-400 mt-1">
-                              <span>المدير: {a?.fullName || '-'}</span> | 
-                              <span>تاريخ الحذف: {d.deletedAt ? new Date(d.deletedAt).toLocaleDateString('ar-IQ') : 'غير معروف'}</span>
-                            </p>
-                          </div>
-                          <div className="flex gap-2">
-                            <Button size="sm" className="bg-green-600 hover:bg-green-700 gap-1" onClick={async () => { await restoreDepartment(d.id); showMsg(`تم استعادة العيادة "${d.name}"`); }}>
-                              <RefreshCw className="w-4 h-4" /> استعادة
-                            </Button>
-                            <Button size="sm" variant="outline" className="text-red-500" onClick={async () => { if (confirm(`حذف العيادة "${d.name}" بشكل نهائي؟ لا يمكن التراجع عن هذا الإجراء!`)) { await closeDepartment(d.id); showMsg('تم الحذف النهائي'); } }}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      </Card>
-                    );
-                  })}
-                </div>
-              )}
-            </Card>
-          </div>
-        )}
       </div>
 
       {/* ===== CENTER MODAL ===== */}
@@ -1377,112 +1255,7 @@ export default function AdminDashboard() {
       )}
 
       {/* ===== RESTORE DELETED ACCOUNT DIALOG ===== */}
-      {restoreDialog?.show && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <Card className="w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
-            <div className="text-center mb-4">
-              <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-3" />
-              <h3 className="text-lg font-bold text-gray-900">يوجد حساب محذوف بنفس الإيميل</h3>
-            </div>
-            <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 mb-4">
-              <p className="text-sm text-gray-700 mb-2">
-                <strong>الإيميل:</strong> {restoreDialog.email}
-              </p>
-              <p className="text-sm text-gray-700 mb-2">
-                <strong>الـ{restoreDialog.entityType === 'center' ? 'مركز' : 'عيادة'} المحذوفة:</strong> {restoreDialog.entityName}
-              </p>
-              <p className="text-xs text-gray-500 mt-2">
-                هذا الحساب تم حذفه ناعماً سابقاً. يمكنك إما استعادته مع جميع بياناته، أو إنشاء حساب جديد (سيتم حذف القديم نهائياً).
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => {
-                  // User chose NEW ACCOUNT - proceed with creation
-                  setRestoreDialog(null);
-                  // Continue with original creation by calling the appropriate function
-                  if (restoreDialog.pendingAction === 'center') {
-                    // Remove dialog flag and retry center creation
-                    const cid = 'center-' + Date.now();
-                    const aid = 'admin-' + Date.now();
-                    const trialDays = pricing.trial?.enabled ? (pricing.trial?.trialDays || 10) : 0;
-                    const center: Center = {
-                      id: cid, name: cForm.name, address: cForm.address, phone: cForm.phone, email: aForm.email, logo: '', workingDays: cForm.workingDays, workingHours: cForm.workingHours, fridayHours: cForm.fridayHours, emergencyHours: cForm.emergencyHours, consultationDuration: 15, doctors: [], adminId: aid,
-                      activationType: 'paid', subscriptionPrice: cForm.subscriptionPrice, freeTrialDays: trialDays,
-                      createdAt: new Date().toISOString(),
-                      expiresAt: new Date(Date.now() + (trialDays + 30) * 86400000).toISOString(),
-                      isPaid: true, isActive: true, status: (trialDays > 0 ? 'trial' : 'active') as Center['status'],
-                      appearanceType: 'free_trial', appearanceExpiry: new Date(Date.now() + 7 * 86400000).toISOString(),
-                      promoImages: [], promoText: ''
-                    };
-                    addCenter(center);
-                    const result = addAdmin({ id: aid, fullName: aForm.fullName, username: aForm.email.toLowerCase(), password: aForm.password, role: 'center', phone: cForm.phone, email: aForm.email, isActive: true, centerId: cid, createdAt: new Date().toISOString() });
-                    if (!result) {
-                      addLog({ id: 'log-' + Date.now(), action: 'create_center', adminName: auth.admin?.fullName || '', targetName: center.name, timestamp: new Date().toISOString(), details: `إنشاء مركز "${center.name}" - اشتراك مدفوع (حساب جديد بعد استبدال المحذوف)` });
-                      setShowCenterModal(false);
-                      setCForm({ name: '', address: '', phone: '', email: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', emergencyHours: '24 ساعة', activationType: 'paid', subscriptionPrice: pricing.platform.centerMonthlyPrice, freeTrialDays: pricing.trial?.trialDays || 10 });
-                      setAForm({ fullName: '', password: '', confirmPassword: '', email: '' });
-                      setOtpSent(false); setOtpVerified(false); setOtpCode(''); setOtpCooldown(0);
-                      showMsg('تم إنشاء المركز الطبي بنجاح (حساب جديد)');
-                    }
-                  } else {
-                    // Retry department creation with doctor account
-                    const did = 'dept-' + Date.now();
-                    const aid = 'admin-' + Date.now();
-                    const trialDays = pricing.trial?.enabled ? (pricing.trial?.trialDays || 10) : 0;
-                    const dept: Department = {
-                      id: did, name: dForm.name, description: dForm.description, icon: dForm.icon, doctorName: dForm.doctorName || dForm.name, doctorEmail: dForm.doctorEmail, doctorPhone: dForm.doctorPhone || '', logo: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', consultationDuration: 15, centerId: dForm.centerId || null, adminId: aid,
-                      activationType: 'paid', subscriptionPrice: dForm.subscriptionPrice, freeTrialDays: trialDays,
-                      createdAt: new Date().toISOString(),
-                      expiresAt: new Date(Date.now() + (trialDays + 30) * 86400000).toISOString(),
-                      isPaid: true, isActive: true, status: (trialDays > 0 ? 'trial' : 'active') as Department['status'],
-                      appearanceType: 'free_trial', appearanceExpiry: new Date(Date.now() + 7 * 86400000).toISOString(),
-                      promoImages: [], promoText: ''
-                    };
-                    addDepartment(dept);
-                    const result = addAdmin({ id: aid, fullName: dForm.doctorName || dForm.name, username: dForm.doctorEmail.toLowerCase(), password: dForm.doctorPassword, role: 'department', phone: dForm.doctorPhone || '', email: dForm.doctorEmail, isActive: true, departmentId: did, createdAt: new Date().toISOString() });
-                    if (!result) {
-                      const parent = dept.centerId ? centers.find(c => c.id === dept.centerId)?.name : 'مستقل';
-                      addLog({ id: 'log-' + Date.now(), action: 'create_department', adminName: auth.admin?.fullName || '', targetName: dept.name, timestamp: new Date().toISOString(), details: `إنشاء عيادة "${dept.name}" (${parent}) - اشتراك مدفوع (حساب جديد)` });
-                      setShowDeptModal(false);
-                      setDForm({ name: '', description: '', icon: 'Stethoscope', doctorName: '', doctorEmail: '', doctorPhone: '', specialty: '', doctorPassword: '', centerId: '', activationType: 'paid', subscriptionPrice: pricing.platform.deptMonthlyPrice, freeTrialDays: pricing.trial?.trialDays || 10 });
-                      setOtpSent(false); setOtpVerified(false); setOtpCode(''); setOtpCooldown(0);
-                      showMsg('تم إنشاء القسم وحساب الطبيب بنجاح (حساب جديد)');
-                    }
-                  }
-                }}
-              >
-                حساب جديد
-              </Button>
-              <Button
-                className="flex-1 bg-green-600 hover:bg-green-700 gap-2"
-                onClick={async () => {
-                  // User chose RESTORE - restore the deleted entity and admin
-                  if (restoreDialog.entityType === 'center') {
-                    await restoreCenter(restoreDialog.entityId);
-                  } else {
-                    await restoreDepartment(restoreDialog.entityId);
-                  }
-                  // Restore admin too
-                  await restoreAdmin(restoreDialog.adminId);
-                  setRestoreDialog(null);
-                  showMsg(`تم استعادة "${restoreDialog.entityName}" بنجاح!`);
-                  setCForm({ name: '', address: '', phone: '', email: '', workingDays: 'السبت - الخميس', workingHours: '8:00 ص - 10:00 م', fridayHours: '4:00 م - 9:00 م', emergencyHours: '24 ساعة', activationType: 'paid', subscriptionPrice: pricing.platform.centerMonthlyPrice, freeTrialDays: pricing.trial?.trialDays || 10 });
-                  setDForm({ name: '', description: '', icon: 'Stethoscope', doctorEmail: '', centerId: '', activationType: 'paid', subscriptionPrice: pricing.platform.deptMonthlyPrice, freeTrialDays: pricing.trial?.trialDays || 10 });
-                  setAForm({ fullName: '', password: '', confirmPassword: '', email: '' });
-                  setOtpSent(false); setOtpVerified(false); setOtpCode(''); setOtpCooldown(0);
-                }}
-              >
-                <RefreshCw className="w-4 h-4" />
-                استعادة القديم
-              </Button>
-            </div>
-            <Button variant="ghost" className="w-full mt-2" onClick={() => setRestoreDialog(null)}>إلغاء</Button>
-          </Card>
-        </div>
-      )}
+      
 
       {/* ===== RENEW MODAL ===== */}
       {renewTarget && (
