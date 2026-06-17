@@ -101,9 +101,7 @@ export async function syncFromFirestore(): Promise<void> {
   const fsDepts = await fsGetCollection<Department>('departments');
   lsSet(KEYS.DEPARTMENTS, fsDepts);
 
-  // Admins - REPLACE with Firestore
-  const fsAdmins = await fsGetCollection<Admin>('admins');
-  lsSet(KEYS.ADMINS, fsAdmins);
+  // Admins - SKIPPED (localStorage only, no Firestore sync to avoid overwriting)
 
   // Announcements
   const anns = await fsGetCollection<AdminAnnouncement>('announcements');
@@ -173,15 +171,16 @@ export function startRealtimeSync(): () => void {
     unsubscribers.push(unsub);
   } catch { /* ignore */ }
 
-  // Listen for admins changes - MERGE
+  // Listen for admins changes - MERGE (keep local, add new from Firestore only)
   try {
     const unsub = onSnapshot(collection(db!, 'admins'), (snap) => {
       const fsData = snap.docs.map(d => ({ ...d.data(), id: d.id })) as Admin[];
-      if (fsData.length > 0) {
-        const localAdmins = getAdmins();
-        const fsIds = new Set(fsData.map(a => a.id));
-        const merged = [...localAdmins.filter(a => !fsIds.has(a.id)), ...fsData];
-        lsSet(KEYS.ADMINS, merged);
+      const localAdmins = getAdmins();
+      const localIds = new Set(localAdmins.map(a => a.id));
+      // Only ADD new admins from Firestore, never remove local ones
+      const newFromFs = fsData.filter(a => !localIds.has(a.id));
+      if (newFromFs.length > 0) {
+        lsSet(KEYS.ADMINS, [...localAdmins, ...newFromFs]);
         broadcast(KEYS.ADMINS);
       }
     });
