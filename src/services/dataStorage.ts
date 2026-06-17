@@ -93,32 +93,17 @@ export async function syncFromFirestore(): Promise<void> {
     lsSet(KEYS.VISIBILITY, vis);
   }
 
-  // Centers - MERGE: keep local + add new from Firestore (deletions handled by removeCenter)
+  // Centers - REPLACE with Firestore (so deletions sync across devices)
   const fsCenters = await fsGetCollection<Center>('centers');
-  const localCenters = getCenters();
-  const localCenterIds = new Set(localCenters.map(c => c.id));
-  const newCentersFromFs = fsCenters.filter(c => !localCenterIds.has(c.id));
-  if (newCentersFromFs.length > 0) {
-    lsSet(KEYS.CENTERS, [...localCenters, ...newCentersFromFs]);
-  }
+  lsSet(KEYS.CENTERS, fsCenters);
 
-  // Departments - MERGE: keep local + add new from Firestore
+  // Departments - REPLACE with Firestore
   const fsDepts = await fsGetCollection<Department>('departments');
-  const localDepts = getDepartments();
-  const localDeptIds = new Set(localDepts.map(d => d.id));
-  const newDeptsFromFs = fsDepts.filter(d => !localDeptIds.has(d.id));
-  if (newDeptsFromFs.length > 0) {
-    lsSet(KEYS.DEPARTMENTS, [...localDepts, ...newDeptsFromFs]);
-  }
+  lsSet(KEYS.DEPARTMENTS, fsDepts);
 
-  // Admins - MERGE: keep local + add new from Firestore
+  // Admins - REPLACE with Firestore
   const fsAdmins = await fsGetCollection<Admin>('admins');
-  const localAdmins = getAdmins();
-  const localAdminIds = new Set(localAdmins.map(a => a.id));
-  const newAdminsFromFs = fsAdmins.filter(a => !localAdminIds.has(a.id));
-  if (newAdminsFromFs.length > 0) {
-    lsSet(KEYS.ADMINS, [...localAdmins, ...newAdminsFromFs]);
-  }
+  lsSet(KEYS.ADMINS, fsAdmins);
 
   // Announcements
   const anns = await fsGetCollection<AdminAnnouncement>('announcements');
@@ -157,27 +142,21 @@ export function startRealtimeSync(): () => void {
     unsubscribers.push(unsub);
   } catch { /* ignore */ }
 
-  // Listen for centers changes - MERGE: keep local + add new from Firestore
+  // Listen for centers changes - REPLACE with Firestore (so deletions sync)
   try {
     const unsub = onSnapshot(collection(db!, 'centers'), (snap) => {
       const fsData = snap.docs.map(d => ({ ...d.data(), id: d.id })) as Center[];
-      const localCenters = getCenters();
-      const fsIds = new Set(fsData.map(c => c.id));
-      const merged = [...localCenters.filter(c => !fsIds.has(c.id)), ...fsData];
-      lsSet(KEYS.CENTERS, merged);
+      lsSet(KEYS.CENTERS, fsData);
       broadcast(KEYS.CENTERS);
     });
     unsubscribers.push(unsub);
   } catch { /* ignore */ }
 
-  // Listen for departments changes - MERGE: keep local + add new from Firestore
+  // Listen for departments changes - REPLACE with Firestore
   try {
     const unsub = onSnapshot(collection(db!, 'departments'), (snap) => {
       const fsData = snap.docs.map(d => ({ ...d.data(), id: d.id })) as Department[];
-      const localDepts = getDepartments();
-      const fsIds = new Set(fsData.map(d => d.id));
-      const merged = [...localDepts.filter(d => !fsIds.has(d.id)), ...fsData];
-      lsSet(KEYS.DEPARTMENTS, merged);
+      lsSet(KEYS.DEPARTMENTS, fsData);
       broadcast(KEYS.DEPARTMENTS);
     });
     unsubscribers.push(unsub);
