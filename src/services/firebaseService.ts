@@ -103,8 +103,8 @@ export async function getCenterById(id: string): Promise<Center | null> {
 export async function saveCenter(center: Center): Promise<void> {
   if (isConfigured && db) {
     await setDoc(doc(db, COLLECTIONS.CENTERS, center.id), center);
-    return;
   }
+  // Always update localStorage so React state syncs immediately
   const centers = await getAllCenters();
   const idx = centers.findIndex(c => c.id === center.id);
   if (idx >= 0) centers[idx] = center;
@@ -153,8 +153,8 @@ export async function getDepartmentsByCenter(centerId: string): Promise<Departme
 export async function saveDepartment(dept: Department): Promise<void> {
   if (isConfigured && db) {
     await setDoc(doc(db, COLLECTIONS.DEPARTMENTS, dept.id), dept);
-    return;
   }
+  // Always update localStorage so React state syncs immediately
   const depts = await getAllDepartments();
   const idx = depts.findIndex(d => d.id === dept.id);
   if (idx >= 0) depts[idx] = dept;
