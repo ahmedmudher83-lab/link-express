@@ -31,7 +31,7 @@ type Tab = 'info' | 'schedule' | 'doctors' | 'departments' | 'visibility' | 'cal
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { auth, logout, updateAdmin, changePassword } = useAuth();
+  const { auth, logout, updateAdmin, changePassword, addAdmin, getAdminByDepartmentId, removeAdmin } = useAuth();
   const {
     centers, departments, getActiveAnnouncements,
     addDepartment, closeDepartment,
@@ -66,7 +66,7 @@ export default function Dashboard() {
 
   const [deptForm, setDeptForm] = useState({
     name: '', description: '', doctorName: '', doctorEmail: '', doctorPhone: '',
-    specialty: '',
+    specialty: '', doctorPassword: '',
     // Each department has its OWN independent schedule
     workingDays: ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'] as string[],
     startTime: '09:00', endTime: '14:00',
@@ -446,6 +446,7 @@ export default function Dashboard() {
   const addDept = async () => {
     if (!cEntity || !auth.admin) return;
     if (!deptForm.name || !deptForm.doctorEmail) { showMsg('يرجى إدخال اسم القسم وإيميل الطبيب'); return; }
+    if (!deptForm.doctorPassword || deptForm.doctorPassword.length < 6) { showMsg('يرجى إدخال كلمة مرور للطبيب (6 أحرف على الأقل)'); return; }
 
     // Parse vacation days from comma-separated string
     const vacationDays = deptForm.vacationDays
@@ -453,8 +454,27 @@ export default function Dashboard() {
       .map(d => d.trim())
       .filter(d => d.length > 0);
 
+    // Generate doctor admin ID
+    const doctorAid = 'admin-' + Date.now();
+    const deptId = editDeptId || 'dept-' + Date.now();
+
+    // Create doctor admin account automatically
+    const adminResult = addAdmin({
+      id: doctorAid,
+      fullName: deptForm.doctorName || deptForm.name,
+      username: deptForm.doctorEmail.toLowerCase(),
+      password: deptForm.doctorPassword,
+      role: 'department',
+      phone: deptForm.doctorPhone || '',
+      email: deptForm.doctorEmail,
+      isActive: true,
+      departmentId: deptId,
+      createdAt: new Date().toISOString(),
+    });
+    if (adminResult) { showMsg(adminResult); return; }
+
     const newDept: Department = {
-      id: editDeptId || 'dept-' + Date.now(),
+      id: deptId,
       name: deptForm.name,
       description: deptForm.description,
       icon: 'Stethoscope',
@@ -475,7 +495,7 @@ export default function Dashboard() {
       fridayHours: '',
       // =====
       centerId: cEntity.id,
-      adminId: auth.admin.id,
+      adminId: doctorAid,
       activationType: 'paid',
       subscriptionPrice: pricing.platform.deptMonthlyPrice,
       freeTrialDays: pricing.trial?.trialDays || 10,
@@ -505,7 +525,7 @@ export default function Dashboard() {
 
     setShowDeptForm(false);
     setEditDeptId(null);
-    setDeptForm({ name: '', description: '', doctorName: '', doctorEmail: '', doctorPhone: '', specialty: '', workingDays: ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'], startTime: '09:00', endTime: '14:00', consultationDuration: 15, daysOff: ['الجمعة'], vacationDays: '', bookingWindow: 7, price: 0 });
+    setDeptForm({ name: '', description: '', doctorName: '', doctorEmail: '', doctorPhone: '', specialty: '', doctorPassword: '', workingDays: ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'], startTime: '09:00', endTime: '14:00', consultationDuration: 15, daysOff: ['الجمعة'], vacationDays: '', bookingWindow: 7, price: 0 });
     showMsg(editDeptId ? `تم تعديل قسم "${deptForm.name}" بنجاح!` : `تم إضافة قسم "${deptForm.name}" بنجاح!`);
   };
 
@@ -519,6 +539,7 @@ export default function Dashboard() {
       doctorEmail: dept.doctorEmail || '',
       doctorPhone: dept.doctorPhone || '',
       specialty: '',
+      doctorPassword: '',
       workingDays: Array.isArray(dept.workingDays) ? dept.workingDays : ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'],
       startTime: dept.startTime || '09:00',
       endTime: dept.endTime || '14:00',
@@ -533,9 +554,11 @@ export default function Dashboard() {
 
   // Remove department
   const removeDept = async (deptId: string) => {
-    if (!confirm('هل أنت متأكد من حذف هذا القسم؟')) return;
+    if (!confirm('هل أنت متأكد من حذف هذا القسم وحساب الطبيب؟')) return;
+    const admin = getAdminByDepartmentId(deptId);
+    if (admin) await removeAdmin(admin.id);
     closeDepartment(deptId);
-    showMsg('تم حذف القسم');
+    showMsg('تم حذف القسم وحساب الطبيب');
   };
 
   // Copy URL
@@ -1122,6 +1145,10 @@ export default function Dashboard() {
                   <div className="space-y-1">
                     <Label className="text-xs">هاتف الطبيب</Label>
                     <Input value={deptForm.doctorPhone} onChange={e => setDeptForm({ ...deptForm, doctorPhone: e.target.value })} placeholder="07xxxxxxxx" dir="ltr" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">كلمة مرور الطبيب <span className="text-red-500">*</span></Label>
+                    <Input type="password" value={deptForm.doctorPassword} onChange={e => setDeptForm({ ...deptForm, doctorPassword: e.target.value })} placeholder="6 أحرف على الأقل" dir="ltr" />
                   </div>
 
                   {/* ===== Department Schedule Section ===== */}

@@ -115,10 +115,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (username: string, password: string): Promise<Admin | null> => {
     const allAdmins = getAdmins();
-    console.log('[DEBUG login] allAdmins count:', allAdmins.length);
-    console.log('[DEBUG login] searching for username:', username);
-    const found = allAdmins.find(a => a.username === username && a.password === password && a.isActive !== false);
-    console.log('[DEBUG login] found:', found ? { id: found.id, email: found.email, centerId: found.centerId, role: found.role } : 'NOT FOUND');
+    // Sort by createdAt descending to pick the newest admin (handles re-created accounts)
+    const matching = allAdmins
+      .filter(a => a.username === username && a.password === password && a.isActive !== false)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const found = matching[0] || null;
     if (found) {
       const authState = { isAuthenticated: true, admin: found };
       setAuth(authState);
@@ -184,7 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const addAdmin = useCallback((admin: Admin): string | null => {
     const all = getAdmins();
-    // Find any existing account with same email or username
+    // Find existing admin with same email
     const existingByEmail = admin.email ? all.find(a => a.email?.toLowerCase() === admin.email.toLowerCase() && a.id !== admin.id) : undefined;
     const existingByUsername = all.find(a => a.username === admin.username && a.id !== admin.id);
     
@@ -199,7 +200,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return false;
     };
     
-    // If existing account is ACTIVE and NOT orphaned (center/dept still exists), reject
+    // If existing account is ACTIVE and NOT orphaned, reject
     if (existingByUsername && existingByUsername.isActive === true && !isOrphaned(existingByUsername)) {
       return 'اسم المستخدم "' + admin.username + '" مستخدم مسبقاً بحساب نشط.';
     }
@@ -207,17 +208,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return 'البريد الإلكتروني مستخدم مسبقاً بحساب نشط.';
     }
     
-    // Remove any existing account with same email or username (including orphaned active accounts)
-    // This allows reusing emails of deleted/closed accounts
-    const updated = all.filter(a => 
-      a.id === admin.id || 
-      (a.username !== admin.username && 
-       (!admin.email || a.email?.toLowerCase() !== admin.email.toLowerCase()))
-    );
+    // If same email exists (orphaned or inactive), UPDATE it instead of creating duplicate
+    if (existingByEmail) {
+      const updated = { ...existingByEmail, ...admin, id: existingByEmail.id };
+      const filtered = all.filter(a => a.id !== existingByEmail.id);
+      localStorage.setItem('linex_admins', JSON.stringify([...filtered, updated]));
+      saveAdmin(updated);
+      setAdmins([...filtered, updated]);
+      return null;
+    }
     
-    localStorage.setItem('linex_admins', JSON.stringify([...updated, admin]));
+    // Remove any existing account with same username
+    const filtered = all.filter(a => a.id === admin.id || a.username !== admin.username);
+    
+    localStorage.setItem('linex_admins', JSON.stringify([...filtered, admin]));
     saveAdmin(admin);
-    setAdmins([...updated, admin]); // Update state immediately
+    setAdmins([...filtered, admin]);
     return null;
   }, []);
 
