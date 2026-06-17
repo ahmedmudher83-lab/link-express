@@ -5,6 +5,7 @@ import { computeStatus } from '@/types/linex';
 import {
   getCenters, saveCenter, removeCenter,
   getDepartments, saveDepartment, removeDepartment,
+  getAdmins, deleteAdmin,
   getPricing, savePricing,
   getVisibility, saveVisibility,
   getFeatured, saveFeatured, removeFeatured,
@@ -151,10 +152,17 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const closeCenter = useCallback((id: string) => {
-    // Remove center and all related departments
+    // Remove center, its admin, and all related departments
+    const allAdmins = getAdmins();
+    const centerAdmin = allAdmins.find(a => a.role === 'center' && a.centerId === id);
+    if (centerAdmin) deleteAdmin(centerAdmin.id);
     removeCenter(id);
     const depts = getDepartments().filter(d => d.centerId === id);
-    depts.forEach(d => removeDepartment(d.id));
+    depts.forEach(d => {
+      const deptAdmin = allAdmins.find(a => a.role === 'department' && a.departmentId === d.id);
+      if (deptAdmin) deleteAdmin(deptAdmin.id);
+      removeDepartment(d.id);
+    });
     setCenters(getCenters());
     setDepartments(getDepartments());
   }, []);
@@ -168,6 +176,10 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const closeDepartment = useCallback((id: string) => {
+    // Remove department and its admin
+    const allAdmins = getAdmins();
+    const deptAdmin = allAdmins.find(a => a.role === 'department' && a.departmentId === id);
+    if (deptAdmin) deleteAdmin(deptAdmin.id);
     removeDepartment(id);
     setDepartments(getDepartments());
   }, []);
