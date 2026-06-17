@@ -557,7 +557,7 @@ export default function Dashboard() {
     if (!confirm('هل أنت متأكد من حذف هذا القسم وحساب الطبيب؟')) return;
     const admin = getAdminByDepartmentId(deptId);
     if (admin) await removeAdmin(admin.id);
-    closeDepartment(deptId);
+    await closeDepartment(deptId);
     showMsg('تم حذف القسم وحساب الطبيب');
   };
 

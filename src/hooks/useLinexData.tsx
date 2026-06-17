@@ -43,9 +43,9 @@ interface LinexDataContext {
   announcements: AdminAnnouncement[];
   // Actions
   addCenter: (c: Center) => void;
-  closeCenter: (id: string) => void;
+  closeCenter: (id: string) => Promise<void>;
   addDepartment: (d: Department) => void;
-  closeDepartment: (id: string) => void;
+  closeDepartment: (id: string) => Promise<void>;
   updatePricing: (p: PricingDefaults) => void;
   renewCenter: (id: string, months: number) => void;
   renewDepartment: (id: string, months: number) => void;
@@ -151,18 +151,18 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
     setCenters(getCenters());
   }, []);
 
-  const closeCenter = useCallback((id: string) => {
+  const closeCenter = useCallback(async (id: string) => {
     // Remove center, its admin, and all related departments
     const allAdmins = getAdmins();
     const centerAdmin = allAdmins.find(a => a.role === 'center' && a.centerId === id);
-    if (centerAdmin) deleteAdmin(centerAdmin.id);
-    removeCenter(id);
+    if (centerAdmin) await deleteAdmin(centerAdmin.id);
+    await removeCenter(id);
     const depts = getDepartments().filter(d => d.centerId === id);
-    depts.forEach(d => {
+    for (const d of depts) {
       const deptAdmin = allAdmins.find(a => a.role === 'department' && a.departmentId === d.id);
-      if (deptAdmin) deleteAdmin(deptAdmin.id);
-      removeDepartment(d.id);
-    });
+      if (deptAdmin) await deleteAdmin(deptAdmin.id);
+      await removeDepartment(d.id);
+    }
     setCenters(getCenters());
     setDepartments(getDepartments());
   }, []);
@@ -175,12 +175,12 @@ export function LinexDataProvider({ children }: { children: ReactNode }) {
     setDepartments(getDepartments());
   }, []);
 
-  const closeDepartment = useCallback((id: string) => {
+  const closeDepartment = useCallback(async (id: string) => {
     // Remove department and its admin
     const allAdmins = getAdmins();
     const deptAdmin = allAdmins.find(a => a.role === 'department' && a.departmentId === id);
-    if (deptAdmin) deleteAdmin(deptAdmin.id);
-    removeDepartment(id);
+    if (deptAdmin) await deleteAdmin(deptAdmin.id);
+    await removeDepartment(id);
     setDepartments(getDepartments());
   }, []);
 

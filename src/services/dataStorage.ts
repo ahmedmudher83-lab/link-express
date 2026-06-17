@@ -207,10 +207,10 @@ export function saveAdmin(admin: Admin): void {
   fsSet('admins', admin.id, admin);
 }
 
-export function deleteAdmin(id: string): void {
+export async function deleteAdmin(id: string): Promise<void> {
+  await fsDel('admins', id);  // Delete from Firestore FIRST
   lsSet(KEYS.ADMINS, getAdmins().filter(a => a.id !== id));
   broadcast(KEYS.ADMINS);
-  fsDel('admins', id);
 }
 
 // ======== AUTH (localStorage only - device specific) ========

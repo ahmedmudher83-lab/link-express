@@ -524,7 +524,7 @@ export default function AdminDashboard() {
                     </div>
                     <div className="flex gap-2">
                       {c.status !== 'expired' && c.status !== 'closed' && <><Button size="sm" variant="outline" onClick={() => nav(`/center/${c.id}`)}><Eye className="w-4 h-4" /></Button><Button size="sm" className="bg-teal-600 hover:bg-teal-700" onClick={() => nav(`/center/${c.id}/booking`)}><ExternalLink className="w-4 h-4" /></Button></>}
-                      {c.status !== 'closed' && <><Button size="sm" variant="outline" className="text-amber-600" onClick={() => setRenewTarget({ type: 'center', id: c.id, name: c.name })}><RefreshCw className="w-4 h-4" /></Button><Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700" onClick={async () => { if (confirm(`حذف المركز "${c.name}" وكل أقسامه نهائياً؟`)) { const admin = getAdminByCenterId(c.id); if (admin) await removeAdmin(admin.id); const depts = getDepartmentsByCenter(c.id); depts.forEach(d => closeDepartment(d.id)); closeCenter(c.id); showMsg('تم الحذف النهائي'); } }}><Trash2 className="w-4 h-4" /></Button></>}
+                      {c.status !== 'closed' && <><Button size="sm" variant="outline" className="text-amber-600" onClick={() => setRenewTarget({ type: 'center', id: c.id, name: c.name })}><RefreshCw className="w-4 h-4" /></Button><Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700" onClick={async () => { if (confirm(`حذف المركز "${c.name}" وكل أقسامه نهائياً؟`)) { const admin = getAdminByCenterId(c.id); if (admin) await removeAdmin(admin.id); const depts = getDepartmentsByCenter(c.id); for (const d of depts) { await closeDepartment(d.id); } await closeCenter(c.id); showMsg('تم الحذف النهائي'); } }}><Trash2 className="w-4 h-4" /></Button></>}
                     </div>
                   </div>
                   {/* Center's Internal Departments */}
@@ -576,7 +576,7 @@ export default function AdminDashboard() {
                       </div>
                       <div className="flex gap-2">
                         {d.status !== 'expired' && d.status !== 'closed' && <Button size="sm" className="bg-teal-600 hover:bg-teal-700" onClick={() => nav(`/dept/${d.id}/booking`)}><ExternalLink className="w-4 h-4" /></Button>}
-                        {d.status !== 'closed' && <><Button size="sm" variant="outline" className="text-amber-600" onClick={() => setRenewTarget({ type: 'dept', id: d.id, name: d.name })}><RefreshCw className="w-4 h-4" /></Button><Button size="sm" variant="ghost" className="text-red-500" onClick={async () => { if (confirm(`حذف العيادة "${d.name}" نهائياً؟`)) { const admin = getAdminByDepartmentId(d.id); if (admin) await removeAdmin(admin.id); closeDepartment(d.id); showMsg('تم الحذف النهائي'); } }}><Trash2 className="w-4 h-4" /></Button></>}
+                        {d.status !== 'closed' && <><Button size="sm" variant="outline" className="text-amber-600" onClick={() => setRenewTarget({ type: 'dept', id: d.id, name: d.name })}><RefreshCw className="w-4 h-4" /></Button><Button size="sm" variant="ghost" className="text-red-500" onClick={async () => { if (confirm(`حذف العيادة "${d.name}" نهائياً؟`)) { const admin = getAdminByDepartmentId(d.id); if (admin) await removeAdmin(admin.id); await closeDepartment(d.id); showMsg('تم الحذف النهائي'); } }}><Trash2 className="w-4 h-4" /></Button></>}
                       </div>
                     </div>
                   </Card>
